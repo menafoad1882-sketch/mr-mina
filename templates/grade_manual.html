@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}تصحيح {{ student.name }}{% endblock %}
+{% block heading %}تصحيح إجابات الطالب{% endblock %}
+{% block content %}
+{% set qtn = {'mcq':'اختيار من متعدد','complete':'أكمل','truefalse':'صح/خطأ','explain':'بم تفسّر','results':'ما النتائج المترتبة','meaning':'ما المقصود','compare':'قارن','prove':'دلل','matching':'توصيل','ordering':'ترتيب','cause_effect':'سبب ونتيجة','analysis':'تحليل واستنتاج','short':'قصير'} %}
+{% set letters = {'a':'أ','b':'ب','c':'ج','d':'د'} %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <h3>{{ student.name }} — {{ ex.title }}</h3>
+      <p class="muted">الدرجة الكلية: {{ '%g'|format(ex.total_marks) }} ·
+        الدرجة التلقائية حتى الآن: {{ '%g'|format(r.auto_score or 0) }}</p>
+    </div>
+    <a href="{{ url_for('exam_results', eid=ex.id) }}" class="btn ghost">← رجوع للنتائج</a>
+  </div>
+</div>
+
+<form method="post">
+{% for it in items %}
+  {% set q = it.q %}
+  <div class="card" style="{{ 'border:1px solid #fde047;background:#fffdf5' if it.manual }}">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <b>{{ loop.index }}. {{ q.text }}</b>
+      <span class="pill">{{ qtn.get(it.qtype, it.qtype) }} · {{ '%g'|format(q.marks) }} درجة</span>
+    </div>
+
+    {% if it.qtype in ['mcq','truefalse'] %}
+      <p style="margin-top:8px">إجابة الطالب:
+        <b>{% if it.answer %}{{ letters.get(it.answer, it.answer) }}){% if it.qtype=='mcq' %}
+          {{ {'a':q.option_a,'b':q.option_b,'c':q.option_c,'d':q.option_d}[it.answer] }}{% else %}
+          {{ 'صح' if it.answer=='a' else 'خطأ' }}{% endif %}
+        {% else %}<span class="muted">لم يجب</span>{% endif %}</b>
+        {% if it.score and it.score > 0 %}<span class="badge present">صحيحة ✅ ({{ '%g'|format(it.score) }})</span>
+        {% else %}<span class="badge absent">خطأ ❌ (0)</span>{% endif %}
+      </p>
+    {% elif it.qtype == 'complete' %}
+      <p style="margin-top:8px">إجابة الطالب: <b>{{ it.answer or '—' }}</b>
+        {% if q.answer_text %}<span class="muted">(الصحيح: {{ q.answer_text }})</span>{% endif %}
+        {% if it.score and it.score > 0 %}<span class="badge present">✅ ({{ '%g'|format(it.score) }})</span>
+        {% else %}<span class="badge absent">❌ (0)</span>{% endif %}
+      </p>
+    {% elif it.qtype in ['matching','ordering'] %}
+      <p style="margin-top:8px">إجابة الطالب: <b>{{ it.answer or '—' }}</b>
+        {% if q.answer_text %}<span class="muted">(الصحيح: {{ q.answer_text }})</span>{% endif %}
+        <span class="badge {{ 'present' if it.score and it.score>0 else 'absent' }}">تصحيح تلقائي ({{ '%g'|format(it.score or 0) }} / {{ '%g'|format(q.marks) }})</span>
+      </p>
+    {% else %}
+      <div style="margin-top:8px;background:#f8fafc;border-radius:8px;padding:10px">
+        <div class="muted" style="font-size:.85rem;margin-bottom:4px">إجابة الطالب:</div>
+        <div style="white-space:pre-wrap">{{ it.answer or '— لم يجب —' }}</div>
+      </div>
+      {% if q.answer_text %}
+      <p class="muted" style="font-size:.85rem;margin-top:6px">💡 الإجابة النموذجية: {{ q.answer_text }}</p>
+      {% endif %}
+      <div class="field" style="margin-top:8px;max-width:220px">
+        <label>الدرجة (من {{ '%g'|format(q.marks) }}) *</label>
+        <input name="score_{{ q.id }}" type="number" step="any" min="0" max="{{ q.marks }}"
+               value="{{ '%g'|format(it.score) if it.score is not none else '' }}"
+               placeholder="0 - {{ '%g'|format(q.marks) }}">
+      </div>
+    {% endif %}
+  </div>
+{% endfor %}
+  <div class="card">
+    <button class="btn green" type="submit">✅ اعتماد الدرجة النهائية</button>
+    <p class="muted" style="font-size:.85rem;margin-top:8px">بعد الاعتماد تظهر الدرجة النهائية للطالب،
+      وتُرسل لولي الأمر تلقائيًا لو الإرسال التلقائي (API) مفعّل.</p>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}مسح QR{% endblock %}
+{% block heading %}تسجيل الحضور بالـ QR{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <h3>{{ se.group_name or 'كل الطلاب' }} — {{ se.date }}</h3>
+      <p class="muted">وجّه كاميرا الموبايل/الكمبيوتر على كارت QR الخاص بالطالب ليُسجّل حضوره تلقائيًا.</p>
+    </div>
+    <a href="{{ url_for('session_detail', sid=se.id) }}" class="btn ghost">← رجوع للحصة</a>
+  </div>
+</div>
+
+<div class="card" style="text-align:center">
+  <div id="reader" style="max-width:400px;margin:0 auto;border-radius:12px;overflow:hidden"></div>
+  <div id="status" style="margin-top:16px;font-size:1.1rem;font-weight:700"></div>
+  <div id="log" style="margin-top:16px;text-align:right;max-width:400px;margin-left:auto;margin-right:auto"></div>
+
+  <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
+    <p class="muted" style="margin-bottom:10px">أو أدخل كود الطالب يدويًا:</p>
+    <div style="display:flex;gap:8px;max-width:300px;margin:0 auto">
+      <input id="manualCode" placeholder="كود الطالب" style="text-align:center">
+      <button class="btn" onclick="markCode(document.getElementById('manualCode').value)">تسجيل</button>
+    </div>
+  </div>
+</div>
+
+{% block scripts %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+const SID = {{ se.id }};
+const marked = new Set();
+function log(name, msg, ok){
+  const d=document.getElementById('log');
+  const c=ok?'#dcfce7':'#fee2e2', t=ok?'#15803d':'#b91c1c';
+  d.innerHTML = `<div style="background:${c};color:${t};padding:10px 14px;border-radius:10px;margin-bottom:8px;font-weight:600">${name?('👤 '+name+' — '):''}${msg}</div>` + d.innerHTML;
+}
+function markCode(code){
+  if(!code) return;
+  if(marked.has(code)){ document.getElementById('status').textContent='⚠️ تم مسحه بالفعل'; return; }
+  fetch(`/scan/${SID}/mark`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({code})})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){ marked.add(code); log(d.name, d.msg, !d.already);
+        document.getElementById('status').textContent = d.already ? '⚠️ '+d.msg : '✅ '+d.name;
+      } else { log('', d.msg, false); document.getElementById('status').textContent='❌ '+d.msg; }
+    });
+  document.getElementById('manualCode').value='';
+}
+// كاميرا
+try{
+  const scanner = new Html5Qrcode("reader");
+  scanner.start({facingMode:"environment"}, {fps:10, qrbox:220},
+    txt=>{ let c=txt.startsWith('STU:')?txt.slice(4):txt; markCode(c); },
+    ()=>{}).catch(e=>{
+      document.getElementById('reader').innerHTML='<p style="padding:20px;color:#64748b">تعذّر فتح الكاميرا. استخدم الإدخال اليدوي بالأسفل.<br>(الكاميرا تحتاج اتصال HTTPS أو localhost)</p>';
+    });
+}catch(e){
+  document.getElementById('reader').innerHTML='<p style="padding:20px;color:#64748b">مكتبة الكاميرا لم تُحمّل (تحتاج إنترنت). استخدم الإدخال اليدوي.</p>';
+}
+</script>
+{% endblock %}
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}سجل رسائل الواتساب{% endblock %}
+{% block heading %}سجل رسائل الواتساب (تشخيص){% endblock %}
+{% block content %}
+<div class="card">
+  <p class="muted">هنا تُسجَّل كل محاولات الإرسال التلقائي عبر الـ API (ناجحة وفاشلة) مع تفاصيل الخطأ للمساعدة في حل المشاكل.</p>
+  {% if status %}
+  <div style="margin-top:10px;padding:12px 14px;border-radius:10px;background:{{ '#dcfce7' if status.ok else '#fee2e2' }}">
+    <b>حالة الإعداد:</b> الوضع = {{ 'إرسال تلقائي (API)' if status.mode=='api' else 'روابط جاهزة' }}
+    {% if status.mode=='api' %}· المزوّد = {{ status.provider }}{% endif %}
+    <ul style="margin:8px 0 0;padding-inline-start:20px">
+      {% for m in status.messages %}<li style="font-size:.9rem">{{ m }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if not wa_api_on %}
+  <p style="margin-top:8px;color:var(--amber)">ℹ️ وضع الإرسال التلقائي (API) غير مفعّل حاليًا. القوائم بتُرسَل عبر روابط واتساب اليدوية. فعّل الـ API من الإعدادات > واتساب لو عايز الإرسال التلقائي.</p>
+  {% endif %}
+  <div class="toolbar" style="margin-top:12px">
+    <form method="post" action="{{ url_for('whatsapp_test') }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input name="phone" placeholder="رقم للاختبار (اختياري)" style="width:200px">
+      <button class="btn wa" type="submit">🧪 إرسال رسالة اختبار</button>
+    </form>
+    <div class="spacer"></div>
+    <a href="{{ url_for('whatsapp_logs_clear') }}" class="btn sm red" onclick="return confirm('مسح كل السجل؟')">🗑️ مسح السجل</a>
+  </div>
+</div>
+
+<div class="card">
+  {% if logs %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الوقت</th><th>الرقم</th><th>النوع</th><th>المزود</th><th>الحالة</th><th>HTTP</th><th>تصنيف الخطأ</th><th>التفاصيل / الرد</th></tr>
+    {% for l in logs %}
+    <tr>
+      <td class="muted" style="white-space:nowrap">{{ l.created_at }}</td>
+      <td>{{ l.phone }}</td>
+      <td class="muted">{{ l.msg_type or '-' }}</td>
+      <td>{{ l.provider }}</td>
+      <td>{% if l.success %}<span class="badge paid">نجح</span>{% else %}<span class="badge unpaid">فشل</span>{% endif %}</td>
+      <td>{% if l.status_code %}<span class="pill">{{ l.status_code }}</span>{% else %}-{% endif %}</td>
+      <td>{% if l.error_type %}<span class="badge gray">{{ l.error_type }}</span>{% else %}-{% endif %}</td>
+      <td style="max-width:360px;word-break:break-word;font-size:.82rem;direction:ltr;text-align:left">{{ l.response }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">📋</div>لا توجد سجلات بعد.</div>
+  {% endif %}
+</div>
+{% endblock %}

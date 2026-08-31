@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}المجموعات{% endblock %}
+{% block heading %}المجموعات / الفصول{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn" onclick="openModal('addGroup')">➕ إضافة مجموعة</button>
+</div>
+
+<div class="card">
+  {% if groups %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>اسم المجموعة</th><th>الصف</th><th>عدد الطلاب</th><th>سعر الحصة</th><th>إجراءات</th></tr>
+    {% for g in groups %}
+    <tr>
+      <td><b>{{ g.name }}</b></td>
+      <td>{{ g.grade or '-' }}</td>
+      <td><span class="pill">{{ g.cnt }} طالب</span></td>
+      <td>{{ '%g'|format(g.fee) }} ج</td>
+      <td class="actions">
+        <a href="{{ url_for('students', group=g.id) }}" class="btn sm ghost">عرض الطلاب</a>
+        <a href="{{ url_for('group_history', gid=g.id) }}" class="btn sm">📋 سجل الحصص</a>
+        <a href="{{ url_for('delete_group', gid=g.id) }}" class="btn sm red"
+           onclick="return confirm('حذف المجموعة؟ الطلاب مش هيتحذفوا.')">حذف</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">🗂️</div>لا توجد مجموعات. أضف أول مجموعة.</div>
+  {% endif %}
+</div>
+
+<div class="modal" id="addGroup">
+  <div class="modal-box">
+    <div class="modal-head"><h3>إضافة مجموعة جديدة</h3>
+      <button class="close" onclick="closeModal('addGroup')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_group') }}">
+      <div class="field"><label>اسم المجموعة *</label>
+        <input name="name" required placeholder="مثال: مجموعة السبت"></div>
+      <div class="field"><label>الصف الدراسي</label>
+        <input name="grade" placeholder="مثال: الصف الثالث الثانوي"></div>
+      <div class="field"><label>سعر الحصة الافتراضي (جنيه)</label>
+        <input name="fee" type="number" step="any" value="0"></div>
+      <button class="btn green" type="submit">حفظ المجموعة</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

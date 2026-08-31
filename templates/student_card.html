@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>كروت الطلاب</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f1f5f9;padding:20px}
+.toolbar{max-width:900px;margin:0 auto 20px;display:flex;gap:10px;justify-content:center}
+.btn{background:#2563eb;color:#fff;border:none;padding:12px 20px;border-radius:10px;
+  font-weight:700;cursor:pointer;font-family:inherit;font-size:.95rem;text-decoration:none;display:inline-block}
+.cards{max-width:900px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{background:#fff;border-radius:16px;padding:20px;text-align:center;
+  border:2px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.card .top{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;margin:-20px -20px 14px;
+  padding:12px;border-radius:14px 14px 0 0;font-weight:700}
+.card img{width:150px;height:150px}
+.card .name{font-size:1.1rem;font-weight:800;margin:10px 0 4px;color:#0f172a}
+.card .grp{color:#64748b;font-size:.85rem;margin-bottom:10px}
+.creds{background:#f8fafc;border-radius:10px;padding:10px;font-size:.9rem;margin-top:8px}
+.creds b{color:#2563eb;font-family:monospace;font-size:1rem;letter-spacing:1px}
+.creds .row{display:flex;justify-content:space-between;padding:3px 0}
+@media print{
+  .toolbar{display:none}
+  body{background:#fff;padding:0}
+  .card{break-inside:avoid;border-color:#cbd5e1}
+}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button class="btn" onclick="window.print()">🖨️ طباعة الكروت</button>
+  <a href="/students" class="btn" style="background:#64748b">← رجوع</a>
+</div>
+<div class="cards">
+  {% for s in students %}
+  <div class="card">
+    <div class="top">{{ teacher_name }} · {{ subject }}</div>
+    <img src="{{ qr_map[s.id] }}" alt="QR">
+    <div class="name">{{ s.name }}</div>
+    <div class="grp">{{ (s.group_name ~ ' · ') if s.group_name else '' }}{{ s.grade or '' }}</div>
+    <div class="creds">
+      <div class="row"><span>كود الحضور/الامتحان:</span> <b>{{ s.code }}</b></div>
+      <div class="row"><span>كلمة مرور الامتحان:</span> <b>{{ s.exam_password }}</b></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="{{ ui_theme or 'light' }}">
+
+<head>
+<script>(function(){try{var s=localStorage.getItem('ui_theme');if(s){document.documentElement.setAttribute('data-theme',s);}}catch(e){}})();</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ ex.title }}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f1f5f9;color:#0f172a;
+  line-height:1.6;padding:16px}
+.wrap{max-width:720px;margin:0 auto}
+.hdr{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:24px;
+  border-radius:16px;margin-bottom:16px;text-align:center;position:sticky;top:10px;z-index:10}
+.hdr h1{font-size:1.3rem;margin-bottom:6px}
+.timer{background:#fff;color:#2563eb;display:inline-block;padding:6px 16px;border-radius:20px;
+  font-weight:800;margin-top:10px;font-size:1.1rem}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.q-num{color:#2563eb;font-weight:800}
+label.opt{display:block;padding:12px 14px;border:2px solid #e2e8f0;border-radius:10px;
+  margin-top:10px;cursor:pointer;transition:.15s}
+label.opt:hover{border-color:#93c5fd;background:#eff6ff}
+label.opt input{margin-left:8px}
+label.opt:has(input:checked){border-color:#2563eb;background:#eff6ff;font-weight:600}
+.btn{display:block;width:100%;background:#16a34a;color:#fff;border:none;padding:15px;
+  border-radius:12px;font-size:1.1rem;font-weight:700;cursor:pointer;font-family:inherit}
+.who{background:#dcfce7;color:#15803d;padding:8px 14px;border-radius:20px;display:inline-block;font-weight:700;margin-top:8px}
+.nav{display:flex;gap:10px;margin-bottom:14px}
+.nav button{flex:1;background:#2563eb;color:#fff;border:none;padding:13px;border-radius:12px;
+  font-size:1rem;font-weight:700;cursor:pointer;font-family:inherit}
+.nav button.ghost{background:#e2e8f0;color:#334155}
+.nav button:disabled{opacity:.5;cursor:not-allowed}
+.progress{text-align:center;color:#64748b;font-size:.9rem;margin-bottom:10px;font-weight:600}
+html[data-theme="dark"] body{background:#0f172a;color:#f1f5f9}
+html[data-theme="dark"] .card{background:#1e293b;color:#f1f5f9;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+html[data-theme="dark"] label.opt{border-color:#334155}
+html[data-theme="dark"] label.opt:hover{border-color:#3b82f6;background:#273449}
+html[data-theme="dark"] label.opt:has(input:checked){border-color:#60a5fa;background:#1e3a5f}
+html[data-theme="dark"] input,html[data-theme="dark"] textarea,html[data-theme="dark"] select{
+  background:#0f172a;color:#f1f5f9;border-color:#334155}
+html[data-theme="dark"] .timer{background:#1e293b;color:#93c5fd}
+.tt{position:fixed;top:14px;left:14px;background:rgba(255,255,255,.85);border:none;width:40px;height:40px;
+  border-radius:12px;font-size:1.15rem;cursor:pointer;z-index:20}
+html[data-theme="dark"] .tt{background:rgba(30,41,59,.9)}
+</style>
+</head>
+<body>
+<button type="button" class="tt" id="tt" onclick="tglTheme()" title="تبديل الوضع">🌙</button>
+<div class="wrap">
+  <div class="hdr">
+    <h1>📝 {{ ex.title }}</h1>
+    <p>عدد الأسئلة: {{ questions|length }} · الدرجة: {{ '%g'|format(ex.total_marks) }}</p>
+    <div class="who">👤 {{ student.name }}</div>
+    <div class="timer" id="timer">{{ ex.duration }}:00</div>
+  </div>
+
+  {% if one_per_page %}<div class="progress" id="progress"></div>{% endif %}
+  <form method="post" id="examForm">
+    <input type="hidden" name="action" value="submit">
+    {% for q in questions %}
+    {% set qt = q.qtype or 'mcq' %}
+    <div class="card q-card" data-idx="{{ loop.index0 }}" data-qid="{{ q.id }}" data-qnum="{{ loop.index }}"
+         {% if one_per_page and not loop.first %}style="display:none"{% endif %}>
+      <p>{% if show_qnum %}<span class="q-num">{{ loop.index }}.</span> {% endif %}{{ q.text }}
+        <span style="color:#64748b;font-size:.85rem">({{ '%g'|format(q.marks) }} درجة)</span></p>
+      {% if qt == 'mcq' and q.shuffled_choices %}
+        {% for letter,opt in q.shuffled_choices %}
+          <label class="opt"><input type="radio" name="q_{{ q.id }}" value="{{ letter }}"> {{ opt }}</label>
+        {% endfor %}
+      {% elif qt in ['mcq','truefalse'] %}
+        {% for opt,letter in [(q.option_a,'a'),(q.option_b,'b'),(q.option_c,'c'),(q.option_d,'d')] %}
+          {% if opt %}
+          <label class="opt"><input type="radio" name="q_{{ q.id }}" value="{{ letter }}">
+            {{ {'a':'أ','b':'ب','c':'ج','d':'د'}[letter] }}) {{ opt }}</label>
+          {% endif %}
+        {% endfor %}
+      {% elif qt in ['map','map_complete'] and q.extra_data %}
+        {% if q.extra_data['image'] %}
+        <img src="{{ q.extra_data['image'] }}" alt="خريطة" style="max-width:100%;border:1px solid #e2e8f0;border-radius:10px;margin:8px 0">
+        {% endif %}
+        {% for it in q.extra_data['items'] %}
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <span style="min-width:36px;font-weight:700">{{ it['num'] }}-</span>
+          <input type="text" name="q_{{ q.id }}_{{ it['num'] }}" placeholder="اكتب المدلول"
+                 style="flex:1;min-width:180px;padding:10px;border:2px solid #e2e8f0;border-radius:10px;font-family:inherit">
+        </div>
+        {% endfor %}
+      {% elif qt == 'complete' %}
+        <input type="text" name="q_{{ q.id }}" placeholder="اكتب الإجابة" style="width:100%;padding:12px;border:2px solid #e2e8f0;border-radius:10px;font-family:inherit">
+      {% elif qt == 'matching' and q.extra_data %}
+        {% set opts = q.extra_data.right %}
+        {% for lt in q.extra_data.left %}
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <span style="min-width:140px;font-weight:600">{{ loop.index }}) {{ lt }}</span>
+          <select name="q_{{ q.id }}_{{ loop.index0 }}" style="flex:1;min-width:160px;padding:10px;border:2px solid #e2e8f0;border-radius:10px;font-family:inherit">
+            <option value="">— اختر —</option>
+            {% for r in opts %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      {% elif qt == 'ordering' and q.extra_data %}
+        {% set items = q.extra_data['items'] %}
+        <p style="color:#64748b;font-size:.85rem">رتّب العناصر: اختر رقم الترتيب الصحيح لكل عبارة.</p>
+        {% for idx in range(items|length) %}
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <span style="min-width:40px;font-weight:700">{{ idx+1 }}.</span>
+          <select name="q_{{ q.id }}_{{ idx }}" style="flex:1;min-width:200px;padding:10px;border:2px solid #e2e8f0;border-radius:10px;font-family:inherit">
+            <option value="">— اختر العبارة —</option>
+            {% for it in items %}<option value="{{ it }}">{{ it }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      {% else %}
+        <textarea name="q_{{ q.id }}" rows="6" placeholder="اكتب إجابتك هنا" style="width:100%;padding:12px;border:2px solid #e2e8f0;border-radius:10px;font-family:inherit;line-height:1.9"></textarea>
+        <p style="color:#64748b;font-size:.8rem;margin-top:4px">✍️ سؤال مقالي — يُصحّح يدويًا من المدرس</p>
+      {% endif %}
+      {% set qtn = {'mcq':'اختيار من متعدد','complete':'أكمل','truefalse':'صح/خطأ','explain':'بم تفسّر','results':'ما النتائج المترتبة','meaning':'ما المقصود','compare':'قارن','prove':'دلل','map':'خريطة','map_complete':'أكمل الخريطة','matching':'توصيل','ordering':'ترتيب','cause_effect':'سبب ونتيجة','analysis':'تحليل واستنتاج','short':'قصير'} %}
+      <span style="display:inline-block;margin-top:8px;font-size:.75rem;color:#64748b;background:#f1f5f9;padding:2px 10px;border-radius:12px">{{ qtn.get(qt, qt) }}</span>
+    </div>
+    {% endfor %}
+    {% if one_per_page %}
+    <div class="nav">
+      {% if not prevent_back %}<button type="button" class="ghost" id="prevBtn" onclick="navQ(-1)">◀ السابق</button>{% endif %}
+      <button type="button" id="nextBtn" onclick="navQ(1)">التالي ▶</button>
+    </div>
+    {% endif %}
+    <button class="btn" type="submit" id="submitBtn"
+            {% if one_per_page and questions|length > 1 %}style="display:none"{% endif %}>✅ تسليم الامتحان</button>
+  </form>
+</div>
+
+<!-- نافذة تحذير الأسئلة غير المُجابة -->
+<div id="unansweredModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);
+     z-index:500;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:16px;padding:26px;max-width:440px;width:100%;
+       box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:right">
+    <div style="font-size:2.4rem;text-align:center">⚠️</div>
+    <h2 style="color:#b45309;text-align:center;margin:8px 0 4px;font-size:1.25rem">لديك أسئلة لم تتم الإجابة عنها</h2>
+    <p id="unansweredCount" style="text-align:center;color:#64748b;margin-bottom:12px"></p>
+    <div id="unansweredList" style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;
+         padding:12px 16px;max-height:180px;overflow-y:auto;margin-bottom:16px;font-weight:600;color:#92400e"></div>
+    <p style="text-align:center;color:#334155;margin-bottom:16px">هل تريد العودة للإجابة عنها؟</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button type="button" id="backToQuestions" style="flex:1;min-width:150px;background:#2563eb;color:#fff;
+              border:none;padding:13px;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;font-family:inherit">
+        ↩ العودة للأسئلة</button>
+      <button type="button" id="submitAnyway" style="flex:1;min-width:150px;background:#e2e8f0;color:#334155;
+              border:none;padding:13px;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;font-family:inherit">
+        تسليم الامتحان رغم ذلك</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var examForm=document.getElementById('examForm');
+var forceSubmit=false;   // عند تجاوز التحذير أو انتهاء الوقت
+
+// كشف الأسئلة غير المُجابة داخل بطاقة سؤال واحدة (يعالج كل الأنواع)
+function isCardAnswered(card){
+  // اختيار من متعدد / صح وخطأ: لازم اختيار واحد على الأقل
+  var radios=card.querySelectorAll('input[type=radio]');
+  if(radios.length){
+    for(var i=0;i<radios.length;i++){ if(radios[i].checked) return true; }
+    return false;
+  }
+  // أسئلة الخريطة: عدة حقول نصية — تُعتبر غير مُجابة لو كل الحقول فارغة
+  // (نكتشف كل حقل على حدة: أي حقل ممتلئ يعني أن السؤال بدأت إجابته)
+  var textFields=card.querySelectorAll('input[type=text], textarea');
+  if(textFields.length){
+    for(var j=0;j<textFields.length;j++){ if((textFields[j].value||'').trim()!=='') return true; }
+    return false;
+  }
+  // توصيل/ترتيب: قوائم منسدلة — تُعتبر مُجابة لو اختير قيمة في أي منها
+  var selects=card.querySelectorAll('select');
+  if(selects.length){
+    for(var k=0;k<selects.length;k++){ if((selects[k].value||'').trim()!=='') return true; }
+    return false;
+  }
+  return true;  // لا حقول معروفة → لا نعتبره ناقصًا
+}
+function findUnanswered(){
+  var out=[];
+  document.querySelectorAll('.q-card').forEach(function(card){
+    if(!isCardAnswered(card)){ out.push(card.getAttribute('data-qnum')); }
+  });
+  return out;
+}
+// اعتراض التسليم: لو فيه أسئلة ناقصة أظهر التحذير بدل التسليم الفوري
+examForm.addEventListener('submit', function(e){
+  if(forceSubmit) return;              // تم التأكيد/انتهى الوقت
+  var missing=findUnanswered();
+  if(missing.length===0) return;       // كله مُجاب → سلّم عادي
+  e.preventDefault();
+  var cnt=document.getElementById('unansweredCount');
+  var list=document.getElementById('unansweredList');
+  cnt.textContent='يوجد '+missing.length+' '+(missing.length===1?'سؤال':(missing.length===2?'سؤالان':'أسئلة'))+' لم تتم الإجابة عنها:';
+  list.innerHTML=missing.map(function(n){ return 'سؤال '+n; }).join('<br>');
+  document.getElementById('unansweredModal').style.display='flex';
+});
+// أزرار نافذة التحذير — لا تُفقد أي إجابة (النموذج نفسه لم يُمسّ)
+document.getElementById('submitAnyway').addEventListener('click', function(){
+  forceSubmit=true;
+  document.getElementById('unansweredModal').style.display='none';
+  examForm.submit();
+});
+document.getElementById('backToQuestions').addEventListener('click', function(){
+  document.getElementById('unansweredModal').style.display='none';
+  // انتقل لأول سؤال ناقص
+  var missing=[];
+  document.querySelectorAll('.q-card').forEach(function(card){
+    if(!isCardAnswered(card)) missing.push(card);
+  });
+  if(missing.length){
+    {% if one_per_page %}
+    var idx=parseInt(missing[0].getAttribute('data-idx'));
+    if(!isNaN(idx) && typeof showQ==='function'){ showQ(idx); }
+    {% else %}
+    missing[0].scrollIntoView({behavior:'smooth', block:'center'});
+    missing[0].style.boxShadow='0 0 0 3px #f59e0b';
+    setTimeout(function(){ missing[0].style.boxShadow=''; }, 2500);
+    {% endif %}
+  }
+});
+
+let total={{ ex.duration }}*60;
+const t=document.getElementById('timer');
+const iv=setInterval(()=>{
+  total--;
+  const m=Math.floor(total/60), s=total%60;
+  t.textContent=m+':'+(s<10?'0':'')+s;
+  if(total<=0){clearInterval(iv);forceSubmit=true;alert('انتهى الوقت! سيتم تسليم الامتحان.');examForm.submit();}
+},1000);
+
+{% if one_per_page %}
+// عرض سؤال واحد لكل صفحة + تنقّل
+var cards=document.querySelectorAll('.q-card');
+var cur=0;
+var preventBack={{ 'true' if prevent_back else 'false' }};
+function showQ(i){
+  cards.forEach(function(c,idx){ c.style.display = idx===i?'block':'none'; });
+  cur=i;
+  var prog=document.getElementById('progress');
+  if(prog) prog.textContent='سؤال '+(i+1)+' من '+cards.length;
+  var prevB=document.getElementById('prevBtn');
+  var nextB=document.getElementById('nextBtn');
+  var subB=document.getElementById('submitBtn');
+  if(prevB) prevB.disabled = (i===0);
+  var last = (i===cards.length-1);
+  if(nextB) nextB.style.display = last?'none':'block';
+  if(subB) subB.style.display = last?'block':'none';
+  window.scrollTo(0,0);
+}
+function navQ(dir){
+  var ni=cur+dir;
+  // منع الرجوع للسؤال السابق لو الإعداد مفعّل
+  if(dir<0 && preventBack) return;
+  if(ni<0||ni>=cards.length) return;
+  showQ(ni);
+}
+showQ(0);
+{% endif %}
+</script>
+{% include "_theme_toggle.html" %}
+</body>
+</html>

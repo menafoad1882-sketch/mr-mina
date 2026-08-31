@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+{% block title %}بنك الأسئلة{% endblock %}
+{% block heading %}🏦 بنك الأسئلة{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="toolbar">
+    <button class="btn" onclick="openModal('addQ')">➕ إضافة سؤال</button>
+    <button class="btn ghost" onclick="openModal('importQ')">📥 استيراد أسئلة من Word</button>
+    <div class="spacer"></div>
+    <a href="{{ url_for('exams') }}" class="btn ghost">← الامتحانات</a>
+  </div>
+
+  <!-- فلاتر قوية (قوائم موحّدة) -->
+  <form method="get" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+    <input name="q" value="{{ filters.q }}" placeholder="🔍 بحث في النص" style="min-width:160px;flex:1">
+    <select name="stage" id="fstage" onchange="depGrade('fstage','fgrade')"><option value="">كل المراحل</option>
+      {% for v in stages %}<option value="{{ v }}" {{ 'selected' if filters.stage==v }}>{{ v }}</option>{% endfor %}
+    </select>
+    <select name="grade" id="fgrade" data-cur="{{ filters.grade }}"><option value="">كل الصفوف</option>
+      {% for v in grades_by_stage.get(filters.stage, []) %}<option value="{{ v }}" {{ 'selected' if filters.grade==v }}>{{ v }}</option>{% endfor %}
+    </select>
+    <select name="subject"><option value="{{ qb_subject }}" selected>{{ qb_subject }}</option></select>
+    <select name="year_id"><option value="">كل الأعوام</option>
+      {% for y in years %}<option value="{{ y.id }}" {{ 'selected' if filters.year_id==y.id|string }}>{{ y.name }}</option>{% endfor %}
+    </select>
+    <select name="term"><option value="">كل الترمات</option>
+      {% for v in terms %}<option value="{{ v }}" {{ 'selected' if filters.term==v }}>{{ v }}</option>{% endfor %}
+    </select>
+    <select name="unit"><option value="">كل الوحدات</option>
+      {% for v in units %}<option value="{{ v }}" {{ 'selected' if filters.unit==v }}>{{ v }}</option>{% endfor %}
+    </select>
+    <select name="lesson"><option value="">كل الدروس</option>
+      {% for v in lessons %}<option value="{{ v }}" {{ 'selected' if filters.lesson==v }}>{{ v }}</option>{% endfor %}
+    </select>
+    <select name="qtype"><option value="">كل الأنواع</option>
+      {% for k,lab in qtype_labels.items() %}<option value="{{ k }}" {{ 'selected' if filters.qtype==k }}>{{ lab }}</option>{% endfor %}
+    </select>
+    <select name="difficulty"><option value="">كل المستويات</option>
+      {% for k,lab in difficulty_labels.items() %}<option value="{{ k }}" {{ 'selected' if filters.difficulty==k }}>{{ lab }}</option>{% endfor %}
+    </select>
+    <button class="btn ghost" type="submit">تصفية</button>
+    <a href="{{ url_for('question_bank') }}" class="btn ghost">مسح</a>
+  </form>
+</div>
+
+<!-- نموذج إنشاء امتحان / إضافة لامتحان من الأسئلة المحدّدة -->
+<form method="post" id="bankForm" action="{{ url_for('question_bank_create_exam') }}">
+<div class="card">
+  <div class="toolbar" style="align-items:center">
+    <h3 style="margin:0">الأسئلة ({{ questions|length }})</h3>
+    <label style="display:flex;align-items:center;gap:6px;font-size:.9rem;margin-inline-start:10px">
+      <input type="checkbox" id="selAll" style="width:18px;height:18px" onclick="toggleAll(this)"> تحديد الكل</label>
+    <span class="pill" id="selCount">0 محدّد</span>
+    <div class="spacer"></div>
+    <button type="button" class="btn green" onclick="openCreate()">🚀 إنشاء امتحان بالمحدّد</button>
+    {% if exams %}
+    <button type="button" class="btn ghost" onclick="openAddExisting()">➕ إضافة لامتحان موجود</button>
+    {% endif %}
+  </div>
+
+  {% if questions %}
+    {% for gkey, grades in grouped.items() %}
+    <div style="border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden">
+      <div style="background:var(--th-bg);padding:12px 16px;font-weight:800">📚 {{ gkey }}</div>
+      {% for grade, qs in grades.items() %}
+      <div style="padding:8px 16px">
+        <div style="font-weight:700;color:var(--primary);margin:6px 0">🎓 {{ grade }} <span class="muted" style="font-weight:400">({{ qs|length }})</span></div>
+        <div class="table-wrap">
+        <table>
+          <tr><th style="width:30px"></th><th>السؤال</th><th>النوع</th><th>المادة</th><th>الوحدة/الدرس</th><th>الصعوبة</th><th>درجة</th><th></th></tr>
+          {% for q in qs %}
+          <tr id="qbrow-{{ q.id }}">
+            <td><input type="checkbox" class="qb" name="qid" value="{{ q.id }}" onchange="updCount()"></td>
+            <td>{{ q.text[:70] }}{{ '…' if q.text|length > 70 }}
+              {% if q.extra and 'image' in (q.extra or '') %}<span title="بها صورة">🖼️</span>{% endif %}</td>
+            <td><span class="pill">{{ qtype_labels.get(q.qtype, q.qtype) }}</span></td>
+            <td class="muted">{{ q.subject or '-' }}</td>
+            <td class="muted">{{ q.unit or '-' }}{% if q.lesson %} / {{ q.lesson }}{% endif %}</td>
+            <td class="muted">{{ difficulty_labels.get(q.difficulty, q.difficulty or '-') }}</td>
+            <td>{{ '%g'|format(q.marks) }}</td>
+            <td style="white-space:nowrap">
+              <button type="button" class="btn sm" onclick="openEdit({{ q.id }})">✏️ تعديل</button>
+              <button type="button" class="btn sm ghost" onclick="openCopy({{ q.id }})">📋 نسخ لعام</button>
+              <button type="button" class="btn sm red" onclick="delQB({{ q.id }})">حذف</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="empty"><div class="big">🏦</div>لا توجد أسئلة في البنك بهذه الفلاتر. أضف سؤالًا أو استورد من Word.</div>
+  {% endif %}
+</div>
+</form>
+
+<!-- Modal: إنشاء امتحان -->
+<div class="modal" id="createExam">
+  <div class="modal-box">
+    <div class="modal-head"><h3>🚀 إنشاء امتحان من الأسئلة المحدّدة</h3>
+      <button class="close" onclick="closeModal('createExam')">&times;</button></div>
+    <p class="muted" id="createCount" style="margin-bottom:12px"></p>
+    <div class="field"><label>اسم الامتحان *</label><input id="ce_title" placeholder="مثال: امتحان الوحدة الأولى"></div>
+    <div class="field"><label>نوع الامتحان</label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:6px 0">
+        <input type="radio" name="ce_kind" value="online" checked style="width:18px;height:18px"> 💻 امتحان إلكتروني (يُنشر للطلاب)</label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400">
+        <input type="radio" name="ce_kind" value="paper" style="width:18px;height:18px"> 🖨️ امتحان ورقي Word (للطباعة)</label>
+    </div>
+    <div class="field"><label>مدة الامتحان (دقيقة)</label><input id="ce_duration" type="number" value="30"></div>
+    <button type="button" class="btn green" onclick="submitCreate()">إنشاء الامتحان</button>
+  </div>
+</div>
+
+<!-- Modal: إضافة لامتحان موجود -->
+{% if exams %}
+<div class="modal" id="addExisting">
+  <div class="modal-box">
+    <div class="modal-head"><h3>➕ إضافة المحدّد لامتحان موجود</h3>
+      <button class="close" onclick="closeModal('addExisting')">&times;</button></div>
+    <div class="field"><label>الامتحان</label>
+      <select id="ae_exam">
+        {% for e in exams %}<option value="{{ e.id }}">{{ e.title }}</option>{% endfor %}
+      </select></div>
+    <button type="button" class="btn green" onclick="submitAddExisting()">إضافة الأسئلة</button>
+  </div>
+</div>
+{% endif %}
+
+<!-- Modal: نسخ سؤال لعام آخر -->
+<div class="modal" id="copyYear">
+  <div class="modal-box">
+    <div class="modal-head"><h3>📋 نسخ السؤال لعام دراسي آخر</h3>
+      <button class="close" onclick="closeModal('copyYear')">&times;</button></div>
+    <form method="post" id="copyForm">
+      <p class="muted" style="margin-bottom:10px">يُنسخ السؤال دون حذف الأصل (لإعادة الاستخدام عبر الأعوام).</p>
+      <div class="field"><label>العام الدراسي الهدف</label>
+        <select name="target_year_id" required>
+          {% for y in years %}<option value="{{ y.id }}">{{ y.name }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>الترم الهدف (اختياري)</label>
+        <select name="target_term"><option value="">كما هو</option>
+          {% for v in terms %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
+        </select></div>
+      <button class="btn green" type="submit">نسخ</button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: إضافة سؤال يدويًا -->
+<div class="modal" id="addQ">
+  <div class="modal-box">
+    <div class="modal-head"><h3>➕ إضافة سؤال لبنك الأسئلة</h3>
+      <button class="close" onclick="closeModal('addQ')">&times;</button></div>
+    <form method="post" action="{{ url_for('question_bank_add') }}">
+      <input type="hidden" name="on_duplicate" id="addDup" value="">
+      <div class="form-row">
+        <div class="field"><label>النوع</label>
+          <select name="qtype" id="bqtype" onchange="bswitch()">
+            {% for k,lab in qtype_labels.items() %}<option value="{{ k }}">{{ lab }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>الدرجة</label><input name="marks" type="number" step="any" value="1"></div>
+      </div>
+      <div class="field"><label>نص السؤال *</label><textarea name="text" rows="2" required></textarea></div>
+      <div id="bmcq">
+        <div class="form-row">
+          <div class="field"><label>أ</label><input name="option_a"></div>
+          <div class="field"><label>ب</label><input name="option_b"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>ج</label><input name="option_c"></div>
+          <div class="field"><label>د</label><input name="option_d"></div>
+        </div>
+        <div class="field"><label>الإجابة الصحيحة</label>
+          <select name="correct"><option value="a">أ</option><option value="b">ب</option><option value="c">ج</option><option value="d">د</option></select></div>
+      </div>
+      <div id="btf" style="display:none">
+        <div class="field"><label>الإجابة الصحيحة</label>
+          <select name="correct"><option value="a">صح</option><option value="b">خطأ</option></select></div>
+      </div>
+      <div id="bans" style="display:none">
+        <div class="field"><label>الإجابة النموذجية</label><textarea name="answer_text" rows="2"></textarea></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>المرحلة التعليمية</label>
+          <select name="stage" id="a_stage" onchange="depGrade('a_stage','a_grade')" required>
+            <option value="">— اختر —</option>{% for v in stages %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+        <div class="field"><label>الصف</label>
+          <select name="grade" id="a_grade"><option value="">— اختر المرحلة أولًا —</option></select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>المادة</label>
+          <input value="{{ qb_subject }}" disabled>
+          <input type="hidden" name="subject" value="{{ qb_subject }}"></div>
+        <div class="field"><label>العام الدراسي</label>
+          <select name="year_id">{% for y in years %}<option value="{{ y.id }}" {{ 'selected' if y.id==active_year_id }}>{{ y.name }}</option>{% endfor %}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الترم</label>
+          <select name="term"><option value="">—</option>{% for v in terms %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+        <div class="field"><label>الوحدة</label>
+          <select name="unit"><option value="">—</option>{% for v in units %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الدرس</label>
+          <select name="lesson"><option value="">—</option>{% for v in lessons %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+        <div class="field"><label>مستوى الصعوبة</label>
+          <select name="difficulty"><option value="">—</option>{% for k,lab in difficulty_labels.items() %}<option value="{{ k }}">{{ lab }}</option>{% endfor %}</select></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn green" type="submit">💾 حفظ في البنك</button>
+        <button class="btn ghost" type="submit" onclick="document.getElementById('addDup').value='new'">حفظ كسؤال جديد (تجاهل التكرار)</button>
+      </div>
+      <p class="muted" style="font-size:.8rem;margin-top:8px">إذا كان السؤال مكرّرًا في نفس التصنيف سيُنبّهك النظام.</p>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: استيراد من Word -->
+<div class="modal" id="importQ">
+  <div class="modal-box">
+    <div class="modal-head"><h3>📥 استيراد أسئلة من Word</h3>
+      <button class="close" onclick="closeModal('importQ')">&times;</button></div>
+    <form method="post" action="{{ url_for('question_bank_import') }}" enctype="multipart/form-data">
+      <p class="muted" style="margin-bottom:10px">يُحلّل الملف بلا ذكاء اصطناعي (python-docx). حدّد نوع الأسئلة والتصنيف المشترك ثم راجعها قبل الحفظ.</p>
+      <div class="field"><label>نوع الأسئلة في الملف</label>
+        <select name="forced_type">
+          <option value="">🔎 اكتشاف تلقائي حسب النص</option>
+          {% for k,lab in qtype_labels.items() %}<option value="{{ k }}">{{ lab }}</option>{% endfor %}
+        </select>
+        <p class="muted" style="font-size:.78rem;margin-top:4px">لو الملف كله من نوع واحد (مثلاً 30 اختيار من متعدد) اختر النوع هنا ليُطبَّق على الكل.</p>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>المرحلة التعليمية</label>
+          <select name="stage" id="i_stage" onchange="depGrade('i_stage','i_grade')">
+            <option value="">—</option>{% for v in stages %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+        <div class="field"><label>الصف</label>
+          <select name="grade" id="i_grade"><option value="">— اختر المرحلة أولًا —</option></select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>المادة</label>
+          <input value="{{ qb_subject }}" disabled>
+          <input type="hidden" name="subject" value="{{ qb_subject }}"></div>
+        <div class="field"><label>العام الدراسي</label>
+          <select name="year_id">{% for y in years %}<option value="{{ y.id }}" {{ 'selected' if y.id==active_year_id }}>{{ y.name }}</option>{% endfor %}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الترم</label>
+          <select name="term"><option value="">—</option>{% for v in terms %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+        <div class="field"><label>الوحدة</label>
+          <select name="unit"><option value="">—</option>{% for v in units %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الدرس</label>
+          <select name="lesson"><option value="">—</option>{% for v in lessons %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select></div>
+        <div class="field"><label>مستوى الصعوبة الافتراضي</label>
+          <select name="difficulty"><option value="">—</option>{% for k,lab in difficulty_labels.items() %}<option value="{{ k }}">{{ lab }}</option>{% endfor %}</select></div>
+      </div>
+      <div class="field"><label>الدرجة الافتراضية</label><input name="marks" type="number" step="any" value="1"></div>
+      <div class="field"><label>ملف Word (.docx) *</label><input type="file" name="docx" accept=".docx" required></div>
+      <button class="btn green" type="submit">📥 رفع وتحليل</button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: تعديل سؤال من البنك -->
+<div class="modal" id="editQ">
+  <div class="modal-box">
+    <div class="modal-head"><h3>✏️ تعديل سؤال في بنك الأسئلة</h3>
+      <button class="close" onclick="closeModal('editQ')">&times;</button></div>
+    <input type="hidden" id="eqid">
+    <div class="form-row">
+      <div class="field"><label>النوع</label>
+        <select id="eq_type" onchange="eqSwitch()">
+          {% for k,lab in qtype_labels.items() %}<option value="{{ k }}">{{ lab }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>الدرجة</label><input id="eq_marks" type="number" step="any" value="1"></div>
+    </div>
+    <div class="field"><label>نص السؤال</label><textarea id="eq_text" rows="2"></textarea></div>
+    <div id="eq_mcq">
+      <div class="form-row">
+        <div class="field"><label>الاختيار (أ)</label><input id="eq_opta"></div>
+        <div class="field"><label>الاختيار (ب)</label><input id="eq_optb"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الاختيار (ج)</label><input id="eq_optc"></div>
+        <div class="field"><label>الاختيار (د)</label><input id="eq_optd"></div>
+      </div>
+      <div class="field"><label>الإجابة الصحيحة</label>
+        <select id="eq_correct"><option value="a">أ</option><option value="b">ب</option><option value="c">ج</option><option value="d">د</option></select></div>
+    </div>
+    <div id="eq_tf" style="display:none">
+      <div class="field"><label>الإجابة الصحيحة</label>
+        <select id="eq_correct_tf" onchange="document.getElementById('eq_correct').value=this.value"><option value="a">صح</option><option value="b">خطأ</option></select></div>
+    </div>
+    <div id="eq_ans" style="display:none">
+      <div class="field"><label>الإجابة النموذجية</label><textarea id="eq_answer" rows="2"></textarea></div>
+    </div>
+    <div class="field"><label>مستوى الصعوبة</label>
+      <select id="eq_difficulty"><option value="">—</option>{% for k,lab in difficulty_labels.items() %}<option value="{{ k }}">{{ lab }}</option>{% endfor %}</select></div>
+    <button type="button" class="btn green" onclick="saveEdit()">💾 حفظ التعديل</button>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+// خريطة الصفوف حسب المرحلة (قوائم منسدلة معتمدة)
+var GRADES_BY_STAGE = {{ grades_by_stage|tojson }};
+// يملأ قائمة الصف حسب المرحلة المختارة (يعيد الضبط عند تغيير المرحلة)
+function depGrade(stageId, gradeId){
+  var stage=document.getElementById(stageId).value;
+  var gsel=document.getElementById(gradeId);
+  if(!gsel) return;
+  var cur=gsel.getAttribute('data-cur')||gsel.value||'';
+  var grades=GRADES_BY_STAGE[stage]||[];
+  var isFilter = gradeId.charAt(0)==='f';
+  var html = isFilter ? '<option value="">كل الصفوف</option>' : '<option value="">— اختر الصف —</option>';
+  grades.forEach(function(g){
+    html += '<option value="'+g+'"'+(g===cur?' selected':'')+'>'+g+'</option>';
+  });
+  gsel.innerHTML=html;
+  gsel.removeAttribute('data-cur');  // يُطبَّق مرة واحدة عند التحميل فقط
+}
+// تهيئة القوائم المعتمدة عند فتح الصفحة (للفلاتر لو كانت هناك مرحلة مختارة)
+(function(){ if(document.getElementById('fstage')) depGrade('fstage','fgrade'); })();
+function bswitch(){
+  var t=document.getElementById('bqtype').value;
+  document.getElementById('bmcq').style.display = t==='mcq'?'block':'none';
+  document.getElementById('btf').style.display = t==='truefalse'?'block':'none';
+  document.getElementById('bans').style.display = (t!=='mcq'&&t!=='truefalse')?'block':'none';
+}
+bswitch();
+function selectedIds(){ return Array.from(document.querySelectorAll('.qb:checked')).map(c=>c.value); }
+function updCount(){
+  var n=selectedIds().length;
+  document.getElementById('selCount').textContent=n+' محدّد';
+}
+function toggleAll(cb){ document.querySelectorAll('.qb').forEach(c=>c.checked=cb.checked); updCount(); }
+function openCreate(){
+  var n=selectedIds().length;
+  if(!n){ alert('اختر سؤالًا واحدًا على الأقل.'); return; }
+  document.getElementById('createCount').textContent='عدد الأسئلة المحدّدة: '+n;
+  openModal('createExam');
+}
+function submitCreate(){
+  var title=document.getElementById('ce_title').value.trim();
+  if(!title){ alert('اكتب اسم الامتحان.'); return; }
+  var f=document.getElementById('bankForm');
+  f.action='{{ url_for("question_bank_create_exam") }}';
+  // احقن الحقول
+  inject(f,'title',title);
+  inject(f,'exam_kind',document.querySelector('input[name=ce_kind]:checked').value);
+  inject(f,'duration',document.getElementById('ce_duration').value||'30');
+  f.submit();
+}
+function openAddExisting(){
+  if(!selectedIds().length){ alert('اختر سؤالًا واحدًا على الأقل.'); return; }
+  openModal('addExisting');
+}
+function submitAddExisting(){
+  var f=document.getElementById('bankForm');
+  f.action='{{ url_for("question_bank_to_exam") }}';
+  inject(f,'exam_id',document.getElementById('ae_exam').value);
+  f.submit();
+}
+function inject(f,name,val){
+  var i=document.createElement('input'); i.type='hidden'; i.name=name; i.value=val; f.appendChild(i);
+}
+function openCopy(qid){
+  document.getElementById('copyForm').action='/question-bank/'+qid+'/copy-to-year';
+  openModal('copyYear');
+}
+// حذف سؤال من البنك عبر AJAX — بلا إعادة تحميل وبلا قفز للأعلى (يحافظ على الموضع)
+function delQB(qid){
+  if(!confirm('حذف السؤال؟')) return;
+  var y=window.scrollY;
+  fetch('/question-bank/'+qid+'/delete',{method:'POST',headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){
+        var row=document.getElementById('qbrow-'+qid);
+        if(row){
+          // لو كان آخر صف في مجموعته، احذف بطاقة المجموعة الفارغة أيضًا
+          var tbl=row.closest('table');
+          row.remove();
+          if(tbl && tbl.querySelectorAll('tr').length<=1){
+            var groupBox=tbl.closest('div[style*="padding:8px 16px"]');
+            if(groupBox) groupBox.remove();
+          }
+        }
+        window.scrollTo(0,y);   // ابقَ في نفس المكان
+      } else { alert(d.error||'تعذّر الحذف'); }
+    }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+// تعديل سؤال من البنك (يفتح المودال ويجلب بياناته)
+function openEdit(qid){
+  fetch('/question-bank/'+qid+'/data').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok){ alert('تعذّر جلب السؤال'); return; }
+    var q=d.question;
+    document.getElementById('eqid').value=q.id;
+    document.getElementById('eq_text').value=q.text||'';
+    document.getElementById('eq_type').value=q.qtype||'mcq';
+    document.getElementById('eq_marks').value=q.marks||1;
+    ['a','b','c','d'].forEach(function(L){ document.getElementById('eq_opt'+L).value=q['option_'+L]||''; });
+    document.getElementById('eq_correct').value=q.correct||'a';
+    document.getElementById('eq_answer').value=q.answer_text||'';
+    document.getElementById('eq_difficulty').value=q.difficulty||'';
+    eqSwitch();
+    openModal('editQ');
+  }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+function eqSwitch(){
+  var t=document.getElementById('eq_type').value;
+  document.getElementById('eq_mcq').style.display = t==='mcq'?'block':'none';
+  document.getElementById('eq_tf').style.display = t==='truefalse'?'block':'none';
+  document.getElementById('eq_ans').style.display = (t!=='mcq'&&t!=='truefalse'&&t!=='map'&&t!=='map_complete')?'block':'none';
+}
+function saveEdit(){
+  var qid=document.getElementById('eqid').value;
+  var payload={
+    text:document.getElementById('eq_text').value,
+    qtype:document.getElementById('eq_type').value,
+    marks:document.getElementById('eq_marks').value,
+    option_a:document.getElementById('eq_opta').value,
+    option_b:document.getElementById('eq_optb').value,
+    option_c:document.getElementById('eq_optc').value,
+    option_d:document.getElementById('eq_optd').value,
+    correct:document.getElementById('eq_correct').value,
+    answer_text:document.getElementById('eq_answer').value,
+    difficulty:document.getElementById('eq_difficulty').value
+  };
+  fetch('/question-bank/'+qid+'/edit',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){ closeModal('editQ'); location.reload(); } else { alert(d.error||'تعذّر الحفظ'); }
+  }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+updCount();
+</script>
+{% endblock %}
+{% endblock %}

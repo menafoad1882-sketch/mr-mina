@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block heading %}{{ title }}{% endblock %}
+{% block content %}
+<div class="card">
+  <p class="muted">اضغط زر «إرسال واتساب» بجانب كل طالب — هيفتح واتساب برسالة جاهزة، وانت بس تضغط إرسال. 
+  تقدر كمان تفتحهم كلهم ورا بعض بزر «فتح الكل».</p>
+  {% if level_page %}
+  <form method="get" style="display:flex;gap:8px;margin-top:10px;max-width:400px">
+    <select name="group" onchange="this.form.submit()">
+      <option value="">كل الطلاب</option>
+      {% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>{% endfor %}
+    </select>
+    <button class="btn ghost" type="submit">عرض</button>
+  </form>
+  {% endif %}
+  <div style="margin-top:12px" class="actions">
+    {% if wa_api_on %}
+      <button class="btn wa" onclick="sendAllApi()">🚀 إرسال الكل تلقائيًا ({{ messages|length }})</button>
+      <span class="badge present">وضع API التلقائي مُفعّل</span>
+    {% else %}
+      <button class="btn wa" onclick="openAll()">📤 فتح الكل ({{ messages|length }})</button>
+    {% endif %}
+    <a href="{{ back }}" class="btn ghost">← رجوع</a>
+  </div>
+</div>
+
+<div class="card">
+  {% if messages %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>الحالة/المستوى</th><th>رقم ولي الأمر</th><th>إرسال</th></tr>
+    {% for m in messages %}
+    <tr>
+      <td><b>{{ m.name }}</b>
+        {% if m.copy_username %}
+        <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span class="muted" style="font-size:.78rem">المستخدم:</span>
+            <code style="background:var(--th-bg);padding:2px 8px;border-radius:6px">{{ m.copy_username }}</code>
+            <button type="button" class="btn sm ghost" style="padding:2px 8px;font-size:.72rem" data-copy="{{ m.copy_username }}" onclick="copyVal(this)">📋 نسخ</button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span class="muted" style="font-size:.78rem">كلمة المرور:</span>
+            <code style="background:var(--th-bg);padding:2px 8px;border-radius:6px">{{ m.copy_password }}</code>
+            <button type="button" class="btn sm ghost" style="padding:2px 8px;font-size:.72rem" data-copy="{{ m.copy_password }}" onclick="copyVal(this)">📋 نسخ</button>
+          </div>
+        </div>
+        {% endif %}
+      </td>
+      <td><span class="pill">{{ m.status }}</span></td>
+      <td class="muted">{{ m.phone }}</td>
+      <td>
+        {% if wa_api_on %}
+        <button class="btn sm wa" onclick='sendOneApi(this,{{ m.phone|tojson }},{{ m.msg|tojson }})'>🚀 إرسال تلقائي</button>
+        {% else %}
+        <a href="{{ m.link }}" target="_blank" class="btn sm wa wa-link">💬 إرسال واتساب</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">💬</div>لا توجد رسائل لعرضها.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function _toast(msg, ok){
+  var t=document.getElementById('copyToast');
+  if(!t){
+    t=document.createElement('div'); t.id='copyToast';
+    t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);'
+      +'background:#0f172a;color:#fff;padding:10px 18px;border-radius:10px;font-weight:600;'
+      +'font-size:.9rem;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;'
+      +'transition:opacity .2s;pointer-events:none';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg; t.style.background=ok?'#16a34a':'#dc2626';
+  t.style.opacity='1';
+  clearTimeout(t._h); t._h=setTimeout(function(){t.style.opacity='0';},1800);
+}
+function _fallbackCopy(val){
+  // بديل لعمل النسخ عند غياب navigator.clipboard (HTTP غير آمن / متصفحات قديمة / موبايل)
+  try{
+    var ta=document.createElement('textarea');
+    ta.value=val;
+    ta.setAttribute('readonly','');
+    ta.style.cssText='position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    ta.setSelectionRange(0, val.length);  // للموبايل (iOS)
+    var ok=document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  }catch(e){ return false; }
+}
+function copyVal(btn, val){
+  // القيمة الفعلية تُقرأ من السمة data-copy (تفاديًا لكسر علامات الاقتباس داخل
+  // onclick). لا نستخرجها من النص المعروض إطلاقًا.
+  if(val === undefined || val === null){ val = btn.getAttribute('data-copy'); }
+  val = (val === null || val === undefined) ? '' : String(val);
+  var orig = btn.getAttribute('data-orig');
+  if(orig === null){ orig = btn.textContent; btn.setAttribute('data-orig', orig); }
+  function flash(txt, ok){
+    btn.textContent = txt;
+    setTimeout(function(){ btn.textContent = btn.getAttribute('data-orig') || '📋 نسخ'; }, 2000);
+    _toast(ok ? 'تم النسخ ✓' : 'فشل النسخ', ok);
+  }
+  function done(ok){
+    if(ok){ flash('تم النسخ ✓', true); }
+    else{
+      flash('فشل النسخ', false);
+      window.prompt('تعذّر النسخ تلقائيًا — انسخ القيمة يدويًا:', val);
+    }
+  }
+  // نستخدم Clipboard API لو متاح (سياق آمن)، وإلا نلجأ إلى execCommand
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(val).then(function(){ done(true); })
+      .catch(function(){ done(_fallbackCopy(val)); });
+  }else{
+    done(_fallbackCopy(val));
+  }
+}
+function openAll(){
+  const links=document.querySelectorAll('.wa-link');
+  if(links.length>5 && !confirm('هيفتح '+links.length+' نافذة واتساب. متأكد؟')) return;
+  links.forEach((a,i)=>setTimeout(()=>window.open(a.href,'_blank'),i*600));
+}
+function sendOneApi(btn,phone,message){
+  btn.textContent='⏳ جاري الإرسال...';
+  fetch('/whatsapp/send_api',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({phone,message})}).then(r=>r.json()).then(d=>{
+    btn.textContent = d.ok ? '✅ تم الإرسال' : '❌ فشل';
+    btn.style.background = d.ok ? '#16a34a' : '#dc2626';
+  });
+}
+function sendAllApi(){
+  if(!confirm('إرسال كل الرسائل تلقائيًا؟')) return;
+  document.querySelectorAll('td button.wa').forEach((b,i)=>setTimeout(()=>b.click(),i*800));
+}
+</script>
+{% endblock %}

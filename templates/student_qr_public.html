@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بيانات دخول الطالب - {{ st.name }}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f1f5f9;display:grid;
+  place-items:center;min-height:100vh;padding:16px}
+.card{background:#fff;border-radius:20px;padding:30px;max-width:380px;width:100%;
+  box-shadow:0 10px 40px rgba(0,0,0,.12);text-align:center}
+.top{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;margin:-30px -30px 20px;
+  padding:18px;border-radius:20px 20px 0 0;font-weight:700}
+img{width:200px;height:200px;border:1px solid #e2e8f0;border-radius:12px}
+.name{font-size:1.3rem;font-weight:800;margin:14px 0 4px;color:#0f172a}
+.grp{color:#64748b;margin-bottom:16px}
+.creds{background:#f8fafc;border-radius:12px;padding:16px;margin-top:10px}
+.row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #e2e8f0}
+.row:last-child{border:0}
+.row b{color:#2563eb;font-family:monospace;font-size:1.1rem;letter-spacing:1px}
+.hint{color:#64748b;font-size:.85rem;margin-top:16px;line-height:1.7}
+.save{background:#25d366;color:#fff;border:none;padding:12px;border-radius:10px;
+  font-weight:700;font-family:inherit;margin-top:16px;width:100%;cursor:pointer;font-size:1rem}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">{{ teacher }} · {{ subject }}</div>
+  <img src="{{ qr }}" alt="QR Code" id="qrimg">
+  <div class="name">{{ st.name }}</div>
+  <div class="grp">{{ st.grade or '' }}</div>
+  <div class="creds">
+    <div class="row"><span>كود الدخول:</span> <b>{{ st.code }}</b></div>
+    <div class="row"><span>كلمة المرور:</span> <b>{{ st.exam_password }}</b></div>
+  </div>
+  <button class="save" onclick="saveQR()">⬇️ حفظ صورة الـ QR</button>
+  <p class="hint">استخدم كود الدخول لتسجيل الحضور بمسح الـ QR، ولدخول الامتحانات الإلكترونية بالكود وكلمة المرور.</p>
+</div>
+<script>
+function saveQR(){
+  const a=document.createElement('a');
+  a.href=document.getElementById('qrimg').src;
+  a.download='qr_{{ st.code }}.png';
+  a.click();
+}
+</script>
+</body>
+</html>

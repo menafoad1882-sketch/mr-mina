@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}تسجيل حضور{% endblock %}
+{% block heading %}تسجيل الحضور والحساب{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <h3>{{ se.group_name or 'كل الطلاب' }} — {{ se.date }}</h3>
+      <p class="muted">{{ se.title or 'بدون عنوان' }} · سعر الحصة: {{ '%g'|format(se.fee) }} ج</p>
+    </div>
+    <div class="actions">
+      <a href="{{ url_for('scan_attendance', sid=se.id) }}" class="btn amber">📷 مسح QR للحضور</a>
+      <a href="{{ url_for('session_whatsapp', sid=se.id) }}" class="btn wa">💬 رسائل واتساب</a>
+      <a href="{{ url_for('sessions') }}" class="btn ghost">← رجوع</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <button class="btn sm ghost" onclick="setAll('present')">✅ الكل حاضر</button>
+    <button class="btn sm ghost" onclick="setAll('absent')">❌ الكل غائب</button>
+    <button class="btn sm ghost" onclick="payAll()">💰 تحديد الكل دفعوا</button>
+    <div class="spacer"></div>
+    <span class="pill" id="incomeTotal">الدخل: 0 ج</span>
+  </div>
+
+  {% if students %}
+  <div class="table-wrap">
+  <table id="attTable">
+    <tr><th>الطالب</th><th>الحالة</th><th>الواجب</th><th>دفع؟</th><th>المبلغ</th></tr>
+    {% for s in students %}
+    {% set ex = existing.get(s.id) %}
+    <tr data-sid="{{ s.id }}">
+      <td><b>{{ s.name }}</b></td>
+      <td>
+        <div class="status-btns" style="display:flex;gap:5px">
+          <button type="button" class="st-btn {{ 'act-present' if ex and ex.status=='present' }}" data-st="present" onclick="pick(this,'present')">حاضر</button>
+          <button type="button" class="st-btn {{ 'act-late' if ex and ex.status=='late' }}" data-st="late" onclick="pick(this,'late')">متأخر</button>
+          <button type="button" class="st-btn {{ 'act-absent' if ex and ex.status=='absent' }}" data-st="absent" onclick="pick(this,'absent')">غائب</button>
+        </div>
+        <input type="hidden" class="status-val" value="{{ ex.status if ex else 'present' }}">
+      </td>
+      <td>
+        <div class="hw-btns" style="display:flex;gap:5px;flex-wrap:wrap">
+          <button type="button" class="hw-btn {{ 'act-done' if ex and ex.homework=='done' }}" data-hw="done" onclick="pickHw(this,'done')">✅ عمله</button>
+          <button type="button" class="hw-btn {{ 'act-incomplete' if ex and ex.homework=='incomplete' }}" data-hw="incomplete" onclick="pickHw(this,'incomplete')">⚠️ غير مكتمل</button>
+          <button type="button" class="hw-btn {{ 'act-not' if ex and ex.homework=='not_done' }}" data-hw="not_done" onclick="pickHw(this,'not_done')">❌ لم يعمله</button>
+        </div>
+        <input type="hidden" class="hw-val" value="{{ ex.homework if ex else 'none' }}">
+      </td>
+      <td><input type="checkbox" class="paid-chk" style="width:22px;height:22px"
+                 {{ 'checked' if ex and ex.paid }} onchange="recalc()"></td>
+      <td><input type="number" step="any" class="amount-val" style="width:100px"
+                 value="{{ '%g'|format(ex.amount) if ex and ex.amount else '%g'|format(se.fee) }}"
+                 oninput="recalc()"></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn green" onclick="save()">💾 حفظ الحضور والحساب</button>
+    <span id="saveMsg" class="muted"></span>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">👥</div>لا يوجد طلاب في هذه المجموعة.</div>
+  {% endif %}
+</div>
+
+<style>
+.st-btn{padding:6px 12px;border:1px solid var(--border);background:#fff;border-radius:8px;
+  cursor:pointer;font-family:inherit;font-size:.85rem;font-weight:600;color:var(--muted)}
+.st-btn.act-present{background:#dcfce7;color:#15803d;border-color:#86efac}
+.st-btn.act-late{background:#fef9c3;color:#a16207;border-color:#fde047}
+.st-btn.act-absent{background:#fee2e2;color:#b91c1c;border-color:#fca5a5}
+.hw-btn{padding:6px 10px;border:1px solid var(--border);background:#fff;border-radius:8px;
+  cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:600;color:var(--muted)}
+.hw-btn.act-done{background:#dcfce7;color:#15803d;border-color:#86efac}
+.hw-btn.act-incomplete{background:#fef9c3;color:#a16207;border-color:#fde047}
+.hw-btn.act-not{background:#fee2e2;color:#b91c1c;border-color:#fca5a5}
+</style>
+
+{% block scripts %}
+<script>
+const FEE = {{ se.fee }};
+function pick(btn,st){
+  const cell = btn.closest('td');
+  cell.querySelectorAll('.st-btn').forEach(b=>b.className='st-btn');
+  btn.className='st-btn act-'+st;
+  cell.querySelector('.status-val').value=st;
+  // لو غائب، شيل الدفع
+  const row=btn.closest('tr');
+  if(st==='absent'){row.querySelector('.paid-chk').checked=false;}
+  recalc();
+}
+function pickHw(btn,hw){
+  const cell=btn.closest('td');
+  cell.querySelectorAll('.hw-btn').forEach(b=>b.className='hw-btn');
+  // خرائط الحالة -> صنف اللون
+  var cls={'done':'done','incomplete':'incomplete','not_done':'not'}[hw] || 'not';
+  btn.className='hw-btn act-'+cls;
+  cell.querySelector('.hw-val').value=hw;
+}
+function setAll(st){
+  document.querySelectorAll('#attTable tr[data-sid]').forEach(row=>{
+    const btns=row.querySelectorAll('.st-btn');
+    btns.forEach(b=>b.className='st-btn');
+    row.querySelector('.st-btn[data-st='+st+']').className='st-btn act-'+st;
+    row.querySelector('.status-val').value=st;
+    if(st==='absent') row.querySelector('.paid-chk').checked=false;
+  });
+  recalc();
+}
+function payAll(){
+  document.querySelectorAll('#attTable tr[data-sid]').forEach(row=>{
+    if(row.querySelector('.status-val').value!=='absent')
+      row.querySelector('.paid-chk').checked=true;
+  });
+  recalc();
+}
+function recalc(){
+  let total=0;
+  document.querySelectorAll('#attTable tr[data-sid]').forEach(row=>{
+    if(row.querySelector('.paid-chk').checked)
+      total += parseFloat(row.querySelector('.amount-val').value||0);
+  });
+  document.getElementById('incomeTotal').textContent='الدخل: '+total+' ج';
+}
+function save(){
+  const records=[];
+  document.querySelectorAll('#attTable tr[data-sid]').forEach(row=>{
+    records.push({
+      student_id: parseInt(row.dataset.sid),
+      status: row.querySelector('.status-val').value,
+      homework: row.querySelector('.hw-val').value,
+      paid: row.querySelector('.paid-chk').checked,
+      amount: parseFloat(row.querySelector('.amount-val').value||0)
+    });
+  });
+  fetch('{{ url_for("save_attendance", sid=se.id) }}',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({records})
+  }).then(r=>r.json()).then(d=>{
+    document.getElementById('saveMsg').textContent='✅ تم الحفظ بنجاح';
+    setTimeout(()=>document.getElementById('saveMsg').textContent='',3000);
+  });
+}
+recalc();
+</script>
+{% endblock %}
+{% endblock %}

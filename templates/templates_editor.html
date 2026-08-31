@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}قوالب الرسائل{% endblock %}
+{% block heading %}قوالب رسائل الواتساب (قابلة للتعديل){% endblock %}
+{% block content %}
+<div class="card" style="background:#eff6ff">
+  <p>هنا تعدّل نصوص الرسائل الجاهزة اللي بتتبعت لأولياء الأمور (حضور، غياب، تأخير، الواجب، الدرجات، المستوى).</p>
+  <p class="muted" style="margin-top:8px">{{ vars_hint }}</p>
+</div>
+
+<form method="post">
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
+  {% for t in templates %}
+  <div class="card">
+    <h3>{{ t.title }}</h3>
+    <textarea name="body_{{ t.key }}" rows="7" style="font-family:inherit">{{ t.body }}</textarea>
+  </div>
+  {% endfor %}
+</div>
+<button class="btn green" type="submit" style="margin-top:6px">💾 حفظ كل القوالب</button>
+</form>
+{% endblock %}

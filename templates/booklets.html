@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}الكتب والمذكرات{% endblock %}
+{% block heading %}إدارة الكتب والمذكرات المطبوعة{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn" onclick="openModal('addBooklet')">➕ تسجيل استلام كتاب</button>
+</div>
+
+<div class="grid stats">
+  <div class="stat"><div class="num">{{ total_count }}</div><div class="lbl">📚 إجمالي الكتب المسجّلة</div></div>
+  <div class="stat green"><div class="num">{{ '%g'|format(total_income) }} ج</div><div class="lbl">💰 إجمالي دخل الكتب</div></div>
+  <div class="stat" style="border-color:var(--red)"><div class="num" style="color:var(--red)">{{ '%g'|format(unpaid_total) }} ج</div><div class="lbl">⚠️ متأخرات الكتب غير المدفوعة</div></div>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap">
+      <select name="group" onchange="this.form.submit()">
+        <option value="">كل المجموعات</option>
+        {% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>{% endfor %}
+      </select>
+      <select name="filter" onchange="this.form.submit()">
+        <option value="" {{ 'selected' if not sel_filter }}>الكل</option>
+        <option value="unpaid" {{ 'selected' if sel_filter=='unpaid' }}>غير المدفوع فقط</option>
+        <option value="paid" {{ 'selected' if sel_filter=='paid' }}>المدفوع فقط</option>
+      </select>
+      <button class="btn ghost" type="submit">تصفية</button>
+    </form>
+  </div>
+
+  {% if rows %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>المجموعة</th><th>الكتاب</th><th>السعر</th><th>الحالة</th><th>المدفوع</th><th>المتبقي</th><th>التاريخ</th><th>إجراءات</th></tr>
+    {% for b in rows %}
+    <tr>
+      <td><b>{{ b.student_name }}</b></td>
+      <td>{{ b.group_name or '-' }}</td>
+      <td>{{ b.title or '-' }}</td>
+      <td>{{ '%g'|format(b.price) }} ج</td>
+      <td>{% if b.paid %}<span class="badge paid">مدفوع</span>{% else %}<span class="badge unpaid">غير مدفوع</span>{% endif %}</td>
+      <td>{{ '%g'|format(b.amount) }} ج</td>
+      <td>{% set rem = b.price - b.amount %}{% if rem > 0 %}<b style="color:var(--red)">{{ '%g'|format(rem) }} ج</b>{% else %}-{% endif %}</td>
+      <td class="muted">{{ b.date }}</td>
+      <td class="actions">
+        {% if not b.paid %}
+        <form method="post" action="{{ url_for('booklet_pay', bid=b.id) }}" style="display:inline">
+          <button class="btn sm green" type="submit">✔ تحصيل</button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('booklet_delete', bid=b.id) }}" class="btn sm red" onclick="return confirm('حذف السجل؟')">حذف</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">📚</div>لا توجد كتب مسجّلة. سجّل أول استلام.</div>
+  {% endif %}
+</div>
+
+<div class="modal" id="addBooklet">
+  <div class="modal-box">
+    <div class="modal-head"><h3>تسجيل استلام كتاب/مذكرة</h3>
+      <button class="close" onclick="closeModal('addBooklet')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_booklet') }}">
+      <div class="field"><label>المجموعة *</label>
+        <select id="bkGroup" onchange="filterBkStudents()" required>
+          <option value="">اختر المجموعة أولاً</option>
+          {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+          <option value="__none__">بدون مجموعة</option>
+        </select></div>
+      <div class="field"><label>الطالب *</label>
+        <select name="student_id" id="bkStudent" required disabled>
+          <option value="">اختر المجموعة أولاً</option>
+          {% for s in students %}<option value="{{ s.id }}" data-group="{{ s.group_id or '' }}" style="display:none">{{ s.name }}</option>{% endfor %}
+        </select></div>
+      <div class="form-row">
+        <div class="field"><label>اسم الكتاب/المذكرة</label><input name="title" placeholder="مثال: مذكرة الترم الأول"></div>
+        <div class="field"><label>التاريخ</label><input name="date" type="date" value="{{ today }}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>السعر (جنيه)</label><input name="price" type="number" step="any" value="0"></div>
+        <div class="field"><label>المبلغ المدفوع</label><input name="amount" type="number" step="any" placeholder="اتركه فاضي = السعر كامل"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer">
+        <input type="checkbox" name="paid" style="width:20px;height:20px">
+        <span style="font-weight:600">تم الدفع</span>
+      </label>
+      <div class="field"><label>ملاحظات</label><input name="notes"></div>
+      <button class="btn green" type="submit">حفظ</button>
+    </form>
+  </div>
+</div>
+{% block scripts %}
+<script>
+function filterBkStudents(){
+  var g = document.getElementById('bkGroup').value;
+  var sel = document.getElementById('bkStudent');
+  var any = false;
+  sel.value = '';
+  Array.from(sel.options).forEach(function(o){
+    if(!o.value){ return; }
+    var og = o.getAttribute('data-group') || '';
+    var match = (g==='__none__') ? (og==='') : (og===g);
+    o.style.display = match ? '' : 'none';
+    o.disabled = !match;
+    if(match) any = true;
+  });
+  sel.disabled = !g;
+  sel.options[0].text = any ? 'اختر الطالب' : 'لا يوجد طلاب في هذه المجموعة';
+}
+</script>
+{% endblock %}
+{% endblock %}

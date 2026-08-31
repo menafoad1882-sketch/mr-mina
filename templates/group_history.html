@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}سجل حصص {{ grp.name }}{% endblock %}
+{% block heading %}سجل حصص المجموعة{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <h3>{{ grp.name }}</h3>
+      <p class="muted">{{ grp.grade or '' }} · سعر الحصة: {{ '%g'|format(grp.fee) }} ج</p>
+    </div>
+    <a href="{{ url_for('groups') }}" class="btn ghost">← رجوع للمجموعات</a>
+  </div>
+</div>
+
+<div class="grid stats">
+  <div class="stat"><div class="num">{{ total_sessions }}</div><div class="lbl">📅 عدد الحصص</div></div>
+  <div class="stat green"><div class="num">{{ '%g'|format(total) }} ج</div><div class="lbl">💰 إجمالي المحصّل للمجموعة</div></div>
+</div>
+
+<div class="card">
+  <h3>📋 الحصص المنفّذة</h3>
+  {% if rows %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>#</th><th>تاريخ الحصة</th><th>اسم/موضوع الحصة</th><th>عدد الحاضرين</th><th>المحصّل في الحصة</th><th>الإجمالي التراكمي</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ r.date }}</td>
+      <td>{{ r.title }}</td>
+      <td><span class="pill">{{ r.attended }}</span></td>
+      <td><b style="color:var(--green)">{{ '%g'|format(r.collected) }} ج</b></td>
+      <td><b>{{ '%g'|format(r.running) }} ج</b></td>
+    </tr>
+    {% endfor %}
+    <tr style="background:#f0fdf4">
+      <td colspan="4"><b>الإجمالي الكلي للمجموعة</b></td>
+      <td colspan="2"><b style="color:var(--green)">{{ '%g'|format(total) }} ج</b></td>
+    </tr>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">📅</div>لا توجد حصص لهذه المجموعة بعد.</div>
+  {% endif %}
+</div>
+{% endblock %}

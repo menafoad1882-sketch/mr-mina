@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}الحصص{% endblock %}
+{% block heading %}الحصص والحضور{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn" onclick="openModal('addSession')">➕ إضافة حصة جديدة</button>
+</div>
+
+<div class="card">
+  {% if sessions %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>التاريخ</th><th>المجموعة</th><th>العنوان</th><th>سعر الحصة</th><th>مسجّل حضورهم</th><th>دخل الحصة</th><th>إجراءات</th></tr>
+    {% for s in sessions %}
+    <tr>
+      <td>{{ s.date }}</td>
+      <td>{{ s.group_name or '-' }}</td>
+      <td>{{ s.title or '-' }}</td>
+      <td>{{ '%g'|format(s.fee) }} ج</td>
+      <td><span class="pill">{{ s.marked }}</span></td>
+      <td><b style="color:var(--green)">{{ '%g'|format(s.income) }} ج</b></td>
+      <td class="actions">
+        <a href="{{ url_for('session_detail', sid=s.id) }}" class="btn sm">تسجيل الحضور</a>
+        <a href="{{ url_for('session_whatsapp', sid=s.id) }}" class="btn sm wa">واتساب</a>
+        <a href="{{ url_for('delete_session', sid=s.id) }}" class="btn sm red"
+           onclick="return confirm('حذف الحصة؟')">حذف</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">📅</div>لا توجد حصص. أضف أول حصة.</div>
+  {% endif %}
+</div>
+
+<div class="modal" id="addSession">
+  <div class="modal-box">
+    <div class="modal-head"><h3>إضافة حصة</h3>
+      <button class="close" onclick="closeModal('addSession')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_session') }}">
+      <div class="field"><label>المجموعة</label>
+        <select name="group_id"><option value="">بدون (كل الطلاب)</option>
+          {% for g in groups %}<option value="{{ g.id }}" data-fee="{{ g.fee }}">{{ g.name }}</option>{% endfor %}
+        </select></div>
+      <div class="form-row">
+        <div class="field"><label>التاريخ *</label><input name="date" type="date" value="{{ today }}" required></div>
+        <div class="field"><label>سعر الحصة (جنيه)</label><input name="fee" type="number" step="any" id="feeInput" placeholder="افتراضي من المجموعة"></div>
+      </div>
+      <div class="field"><label>عنوان الحصة</label><input name="title" placeholder="مثال: مراجعة الفصل الأول"></div>
+      <div class="field"><label>ملاحظات</label><textarea name="notes" rows="2"></textarea></div>
+      <button class="btn green" type="submit">حفظ الحصة</button>
+    </form>
+  </div>
+</div>
+{% block scripts %}
+<script>
+document.querySelector('#addSession select[name=group_id]').addEventListener('change',function(){
+  const fee=this.options[this.selectedIndex].dataset.fee;
+  if(fee) document.getElementById('feeInput').value=fee;
+});
+</script>
+{% endblock %}
+{% endblock %}

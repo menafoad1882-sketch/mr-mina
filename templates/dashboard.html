@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}الرئيسية - إدارة المدرس{% endblock %}
+{% block heading %}لوحة التحكم{% endblock %}
+{% block content %}
+<div class="grid stats">
+  <div class="stat"><div class="num">{{ n_students }}</div><div class="lbl">👥 عدد الطلاب</div></div>
+  <div class="stat"><div class="num">{{ n_groups }}</div><div class="lbl">🗂️ المجموعات</div></div>
+  <div class="stat"><div class="num">{{ n_sessions }}</div><div class="lbl">📅 الحصص</div></div>
+  <div class="stat"><div class="num">{{ n_exams }}</div><div class="lbl">📝 الامتحانات</div></div>
+  <div class="stat green"><div class="num">{{ '%g'|format(income) }} ج</div><div class="lbl">💰 دخل شهر {{ month }}</div></div>
+</div>
+
+<!-- ═══ الرسوم البيانية ═══ -->
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+  <!-- رسم الحضور -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <h3 style="margin:0">📊 إحصائيات الحضور</h3>
+    </div>
+    <div class="toolbar" style="margin-bottom:12px;gap:6px">
+      <select id="attPeriod" onchange="loadAttendance()" style="width:auto">
+        <option value="today">اليوم</option>
+        <option value="week">هذا الأسبوع</option>
+        <option value="month" selected>هذا الشهر</option>
+        <option value="custom">فترة مخصصة</option>
+      </select>
+      <select id="attGroup" onchange="loadAttendance()" style="width:auto">
+        <option value="">كل المجموعات</option>
+        {% for g in dash_groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+      </select>
+      <span id="attCustom" style="display:none;gap:6px;align-items:center">
+        <input type="date" id="attStart" style="width:auto" onchange="loadAttendance()">
+        <input type="date" id="attEnd" style="width:auto" onchange="loadAttendance()">
+      </span>
+    </div>
+    <div id="attChart" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:center;min-height:170px">
+      <div class="muted">جارٍ التحميل...</div>
+    </div>
+  </div>
+
+  <!-- رسم المدفوعات -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <h3 style="margin:0">💰 المدفوعات المحصّلة</h3>
+    </div>
+    <div class="toolbar" style="margin-bottom:12px;gap:6px">
+      <select id="payPeriod" onchange="loadPayments()" style="width:auto">
+        <option value="today" selected>اليوم</option>
+        <option value="month">الشهر</option>
+        <option value="custom">فترة مخصصة</option>
+      </select>
+      <select id="payGroup" onchange="loadPayments()" style="width:auto">
+        <option value="">كل المجموعات</option>
+        {% for g in dash_groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+      </select>
+      <span id="payCustom" style="display:none;gap:6px;align-items:center">
+        <input type="date" id="payStart" style="width:auto" onchange="loadPayments()">
+        <input type="date" id="payEnd" style="width:auto" onchange="loadPayments()">
+      </span>
+    </div>
+    <div id="payTotal" style="font-weight:800;font-size:1.3rem;color:var(--green);margin-bottom:8px"></div>
+    <div id="payChart" style="min-height:170px"><div class="muted">جارٍ التحميل...</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>روابط سريعة</h3>
+  <div class="actions">
+    <a href="{{ url_for('students') }}" class="btn ghost">➕ إضافة طالب</a>
+    <a href="{{ url_for('sessions') }}" class="btn ghost">📅 تسجيل حضور حصة</a>
+    <a href="{{ url_for('exams') }}" class="btn ghost">📝 إنشاء امتحان</a>
+    <a href="{{ url_for('whatsapp_level') }}" class="btn ghost">💬 إرسال مستوى الطلاب</a>
+    <a href="{{ url_for('reports') }}" class="btn ghost">📊 تقرير الدخل الشهري</a>
+  </div>
+</div>
+
+<div class="card">
+  <h3>آخر الحصص</h3>
+  {% if recent_sessions %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>التاريخ</th><th>المجموعة</th><th>العنوان</th><th>سعر الحصة</th><th></th></tr>
+    {% for s in recent_sessions %}
+    <tr>
+      <td>{{ s.date }}</td>
+      <td>{{ s.group_name or '-' }}</td>
+      <td>{{ s.title or '-' }}</td>
+      <td>{{ '%g'|format(s.fee) }} ج</td>
+      <td><a href="{{ url_for('session_detail', sid=s.id) }}" class="btn sm">فتح</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">📅</div>لا توجد حصص بعد. ابدأ من صفحة الحصص.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ═══ رسم دائري (donut) للحضور بـ SVG مدمج ═══
+function donut(segments){
+  // segments: [{value, color, label}]
+  var total=segments.reduce(function(a,s){return a+s.value;},0);
+  var r=52, cx=60, cy=60, circ=2*Math.PI*r, off=0;
+  var parts='';
+  if(total===0){
+    parts='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="#e2e8f0" stroke-width="16"/>';
+  } else {
+    segments.forEach(function(s){
+      if(s.value<=0) return;
+      var len=circ*s.value/total;
+      parts+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" '+
+        'stroke-width="16" stroke-dasharray="'+len+' '+(circ-len)+'" stroke-dashoffset="'+(-off)+'" '+
+        'transform="rotate(-90 '+cx+' '+cy+')"/>';
+      off+=len;
+    });
+  }
+  return '<svg width="120" height="120" viewBox="0 0 120 120">'+parts+
+    '<text x="60" y="58" text-anchor="middle" font-size="15" font-weight="800" fill="var(--text)">'+total+'</text>'+
+    '<text x="60" y="75" text-anchor="middle" font-size="9" fill="var(--muted)">إجمالي</text></svg>';
+}
+function loadAttendance(){
+  var p=document.getElementById('attPeriod').value;
+  document.getElementById('attCustom').style.display = p==='custom'?'inline-flex':'none';
+  var qs='period='+p+'&group_id='+document.getElementById('attGroup').value;
+  if(p==='custom'){ qs+='&start='+document.getElementById('attStart').value+'&end='+document.getElementById('attEnd').value; }
+  fetch('{{ url_for("api_dashboard_attendance") }}?'+qs).then(r=>r.json()).then(function(d){
+    var seg=[
+      {value:d.counts.present,color:'#16a34a',label:'الحضور'},
+      {value:d.counts.absent,color:'#dc2626',label:'الغياب'},
+      {value:d.counts.late,color:'#d97706',label:'التأخير'}
+    ];
+    var legend='<div style="display:flex;flex-direction:column;gap:8px">'+
+      '<div><span style="display:inline-block;width:12px;height:12px;background:#16a34a;border-radius:3px"></span> الحضور: <b>'+d.pct.present+'%</b> ('+d.counts.present+')</div>'+
+      '<div><span style="display:inline-block;width:12px;height:12px;background:#dc2626;border-radius:3px"></span> الغياب: <b>'+d.pct.absent+'%</b> ('+d.counts.absent+')</div>'+
+      '<div><span style="display:inline-block;width:12px;height:12px;background:#d97706;border-radius:3px"></span> التأخير: <b>'+d.pct.late+'%</b> ('+d.counts.late+')</div>'+
+      '</div>';
+    var html = d.total===0
+      ? '<div class="empty" style="padding:20px">لا توجد سجلات حضور في هذه الفترة.</div>'
+      : donut(seg)+legend;
+    document.getElementById('attChart').innerHTML=html;
+  }).catch(function(){ document.getElementById('attChart').innerHTML='<div class="muted">تعذّر التحميل.</div>'; });
+}
+// ═══ رسم أعمدة للمدفوعات بـ SVG مدمج ═══
+function bars(buckets){
+  if(!buckets.length) return '<div class="empty" style="padding:20px">لا توجد مدفوعات في هذه الفترة.</div>';
+  var max=Math.max.apply(null,buckets.map(function(b){return b.value;})) || 1;
+  var bw=Math.max(28, Math.min(70, Math.floor(560/buckets.length)));
+  var gap=12, h=150, w=buckets.length*(bw+gap)+gap;
+  var svg='<svg width="'+w+'" height="'+(h+40)+'" viewBox="0 0 '+w+' '+(h+40)+'" style="max-width:100%">';
+  buckets.forEach(function(b,i){
+    var bh=Math.round(h*b.value/max);
+    var x=gap+i*(bw+gap), y=h-bh+10;
+    svg+='<rect x="'+x+'" y="'+y+'" width="'+bw+'" height="'+bh+'" rx="6" fill="#16a34a"/>';
+    svg+='<text x="'+(x+bw/2)+'" y="'+(y-4)+'" text-anchor="middle" font-size="10" font-weight="700" fill="var(--text)">'+(b.value%1?b.value.toFixed(0):b.value)+'</text>';
+    svg+='<text x="'+(x+bw/2)+'" y="'+(h+26)+'" text-anchor="middle" font-size="9" fill="var(--muted)">'+b.label+'</text>';
+  });
+  svg+='</svg>';
+  return '<div style="overflow-x:auto">'+svg+'</div>';
+}
+function loadPayments(){
+  var p=document.getElementById('payPeriod').value;
+  document.getElementById('payCustom').style.display = p==='custom'?'inline-flex':'none';
+  var qs='period='+p+'&group_id='+document.getElementById('payGroup').value;
+  if(p==='custom'){ qs+='&start='+document.getElementById('payStart').value+'&end='+document.getElementById('payEnd').value; }
+  fetch('{{ url_for("api_dashboard_payments") }}?'+qs).then(r=>r.json()).then(function(d){
+    document.getElementById('payTotal').textContent='إجمالي المحصّل: '+(d.total%1?d.total.toFixed(2):d.total)+' ج';
+    document.getElementById('payChart').innerHTML=bars(d.buckets);
+  }).catch(function(){ document.getElementById('payChart').innerHTML='<div class="muted">تعذّر التحميل.</div>'; });
+}
+loadAttendance(); loadPayments();
+</script>
+{% endblock %}

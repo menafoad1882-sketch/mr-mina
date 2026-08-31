@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}الطلاب{% endblock %}
+{% block heading %}الطلاب{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn" onclick="openModal('addStudent')">➕ إضافة طالب</button>
+  <a href="{{ url_for('whatsapp_level', group=sel_group) }}" class="btn wa">💬 إرسال المستوى لأولياء الأمور</a>
+  <a href="{{ url_for('send_all_logins', group=sel_group) }}" class="btn wa">🔑 إرسال بيانات الدخول لأولياء الأمور</a>
+  <a href="{{ url_for('cards_select') }}" class="btn amber">🎫 كروت QR (حسب المجموعة)</a>
+  <button type="button" class="btn amber" id="printSelBtn" onclick="printSelected()" disabled>🖨️ طباعة الكروت المحددة (<span id="selCount">0</span>)</button>
+  <div class="spacer"></div>
+  <form method="get" style="display:flex;gap:8px;flex-wrap:wrap">
+    <input name="q" value="{{ q }}" placeholder="🔍 بحث بالاسم أو الرقم" style="width:200px">
+    <select name="group" onchange="this.form.submit()">
+      <option value="">كل المجموعات</option>
+      {% for g in groups %}
+      <option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="status" value="{{ status }}">
+    <button class="btn ghost" type="submit">بحث</button>
+  </form>
+</div>
+
+<!-- فلتر الحالة: فعّال / غير فعّال / الكل -->
+<div class="toolbar" style="gap:6px">
+  <span style="font-weight:600;align-self:center">الحالة:</span>
+  {% for key, label in [('active','فعّال'), ('inactive','غير فعّال'), ('all','الكل')] %}
+  <a href="{{ url_for('students', status=key, group=sel_group, q=q) }}"
+     class="btn sm {{ '' if status==key else 'ghost' }}">
+     {{ label }} ({{ counts[key] }})</a>
+  {% endfor %}
+</div>
+
+<div class="card">
+  {% if students %}
+  <div class="table-wrap">
+  <table>
+    <tr>
+      <th style="width:34px"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="تحديد الكل"></th>
+      <th>الاسم</th><th>المجموعة</th><th>الحالة</th><th>كود/باسورد الامتحان</th><th>رقم ولي الأمر</th><th>إجراءات</th></tr>
+    {% for s in students %}
+    {% set is_inactive = (s.enroll_status == 'inactive') %}
+    <tr {{ 'style=opacity:.6' if is_inactive }}>
+      <td><input type="checkbox" class="selCard" value="{{ s.id }}" onchange="updateSel()"></td>
+      <td><a href="{{ url_for('student_profile', sid=s.id) }}"><b>{{ s.name }}</b></a></td>
+      <td>{{ s.group_name or '-' }}</td>
+      <td>
+        {% if is_inactive %}<span class="badge absent">غير فعّال</span>
+        {% else %}<span class="badge present">فعّال</span>{% endif %}
+      </td>
+      <td><span class="pill">{{ s.code }}</span> <span class="badge gray">{{ s.exam_password }}</span></td>
+      <td>{{ s.parent_phone }}</td>
+      <td class="actions">
+        <a href="{{ url_for('student_profile', sid=s.id) }}" class="btn sm ghost">الملف</a>
+        <button class="btn sm" onclick='editStudent({{ s.id }}, {{ s.name|tojson }}, {{ (s.phone or "")|tojson }}, {{ s.parent_phone|tojson }}, {{ (s.grade or "")|tojson }}, {{ s.group_id or "null" }}, {{ (s.notes or "")|tojson }})'>تعديل</button>
+        {% if is_inactive %}
+        <a href="{{ url_for('reactivate_student', sid=s.id) }}" class="btn sm green">♻️ إعادة تفعيل</a>
+        {% else %}
+        <button type="button" class="btn sm amber"
+           onclick='openDeactivate({{ s.id }}, {{ s.name|tojson }})'>🚫 تعطيل</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">👥</div>لا يوجد طلاب. أضف أول طالب.</div>
+  {% endif %}
+</div>
+
+<!-- Add modal -->
+<div class="modal" id="addStudent">
+  <div class="modal-box">
+    <div class="modal-head"><h3>إضافة طالب جديد</h3>
+      <button class="close" onclick="closeModal('addStudent')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_student') }}">
+      <div class="field"><label>اسم الطالب *</label><input name="name" required></div>
+      <div class="form-row">
+        <div class="field"><label>رقم الطالب</label><input name="phone" placeholder="0100..."></div>
+        <div class="field"><label>رقم ولي الأمر (واتساب) *</label><input name="parent_phone" required placeholder="0111..."></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الصف</label><input name="grade"></div>
+        <div class="field"><label>المجموعة</label>
+          <select name="group_id"><option value="">بدون</option>
+            {% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div class="field"><label>ملاحظات</label><textarea name="notes" rows="2"></textarea></div>
+      <button class="btn green" type="submit">حفظ الطالب</button>
+    </form>
+  </div>
+</div>
+
+<!-- Edit modal -->
+<div class="modal" id="editStudent">
+  <div class="modal-box">
+    <div class="modal-head"><h3>تعديل بيانات الطالب</h3>
+      <button class="close" onclick="closeModal('editStudent')">&times;</button></div>
+    <form method="post" id="editForm">
+      <div class="field"><label>اسم الطالب *</label><input name="name" id="e_name" required></div>
+      <div class="form-row">
+        <div class="field"><label>رقم الطالب</label><input name="phone" id="e_phone"></div>
+        <div class="field"><label>رقم ولي الأمر *</label><input name="parent_phone" id="e_parent" required></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الصف</label><input name="grade" id="e_grade"></div>
+        <div class="field"><label>المجموعة</label>
+          <select name="group_id" id="e_group"><option value="">بدون</option>
+            {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div class="field"><label>ملاحظات</label><textarea name="notes" id="e_notes" rows="2"></textarea></div>
+      <button class="btn green" type="submit">حفظ التعديلات</button>
+    </form>
+  </div>
+</div>
+
+<!-- Deactivate modal (سبب التعطيل + إشعار واتساب اختياري) -->
+<div class="modal" id="deactivateStudent">
+  <div class="modal-box">
+    <div class="modal-head"><h3>🚫 تعطيل الطالب: <span id="d_name"></span></h3>
+      <button class="close" onclick="closeModal('deactivateStudent')">&times;</button></div>
+    <form method="post" id="deactivateForm">
+      <p class="muted" style="font-size:.88rem">تُحفظ كل بيانات الطالب التاريخية، ولن يظهر في القوائم والعمليات الفعّالة.</p>
+      <div class="field"><label>سبب التعطيل (اختياري)</label>
+        <textarea name="reason" rows="2" placeholder="مثال: انقطع عن الحضور / انتقل لمدرسة أخرى"></textarea></div>
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+        <input type="checkbox" name="notify_parent" value="1"> 📲 إرسال إشعار لولي الأمر على واتساب
+      </label>
+      <button class="btn amber" type="submit">تأكيد التعطيل</button>
+    </form>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+function selectedIds(){
+  return Array.from(document.querySelectorAll('.selCard:checked')).map(c=>c.value);
+}
+function updateSel(){
+  const ids=selectedIds();
+  document.getElementById('selCount').textContent=ids.length;
+  document.getElementById('printSelBtn').disabled = ids.length===0;
+}
+function toggleAll(cb){
+  document.querySelectorAll('.selCard').forEach(c=>c.checked=cb.checked);
+  updateSel();
+}
+function printSelected(){
+  const ids=selectedIds();
+  if(!ids.length){ alert('اختر طالبًا واحدًا على الأقل'); return; }
+  window.open('{{ url_for("all_cards") }}?ids='+ids.join(','), '_blank');
+}
+function openDeactivate(id,name){
+  document.getElementById('deactivateForm').action = '/students/deactivate/'+id;
+  document.getElementById('d_name').textContent = name;
+  openModal('deactivateStudent');
+}
+function editStudent(id,name,phone,parent,grade,group,notes){
+  document.getElementById('editForm').action = '/students/edit/'+id;
+  document.getElementById('e_name').value = name;
+  document.getElementById('e_phone').value = phone;
+  document.getElementById('e_parent').value = parent;
+  document.getElementById('e_grade').value = grade;
+  document.getElementById('e_group').value = group||'';
+  document.getElementById('e_notes').value = notes;
+  openModal('editStudent');
+}
+</script>
+{% endblock %}
+{% endblock %}

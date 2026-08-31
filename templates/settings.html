@@ -1,0 +1,538 @@
+{% extends "base.html" %}
+{% block title %}الإعدادات{% endblock %}
+{% block heading %}الإعدادات{% endblock %}
+{% block content %}
+
+<!-- تبويبات -->
+<div class="card" style="padding:8px;display:flex;gap:6px;flex-wrap:wrap">
+  <button class="tab-btn" data-tab="account" onclick="showTab('account',this)">🔐 الحساب</button>
+  <button class="tab-btn" data-tab="general" onclick="showTab('general',this)">👨‍🏫 عام</button>
+  <button class="tab-btn" data-tab="email" onclick="showTab('email',this)">📧 الإيميل</button>
+  <button class="tab-btn" data-tab="whatsapp" onclick="showTab('whatsapp',this)">💬 واتساب API</button>
+  <button class="tab-btn" data-tab="customize" onclick="showTab('customize',this)">🎨 تخصيص الواجهات</button>
+  <button class="tab-btn" data-tab="supabase" onclick="showTab('supabase',this)">☁️ Supabase</button>
+</div>
+
+<!-- الحساب -->
+<div class="tab" id="tab-account">
+<form method="post">
+  <input type="hidden" name="section" value="account">
+  <div class="card">
+    <h3>🔐 حساب المدرس (الأدمن)</h3>
+    <p class="muted" style="margin-bottom:14px">اسم المستخدم الحالي: <b>{{ admin_user.username }}</b></p>
+    <div class="field"><label>اسم المستخدم الجديد (اختياري)</label>
+      <input name="username" value="{{ admin_user.username }}"></div>
+    <div class="field"><label>كلمة المرور الحالية *</label>
+      <input name="current_password" type="password" required placeholder="لازم لتأكيد أي تغيير"></div>
+    <div class="field"><label>كلمة المرور الجديدة (اختياري)</label>
+      <input name="new_password" type="password" placeholder="اتركها فاضية لعدم التغيير"></div>
+    <button class="btn green" type="submit">💾 حفظ بيانات الحساب</button>
+  </div>
+  <div class="card" style="background:#fffbeb">
+    <h3>🔑 كود استرجاع كلمة المرور</h3>
+    <p>لو نسيت كلمة المرور، استخدم هذا الكود في صفحة «نسيت كلمة المرور». احفظه في مكان آمن:</p>
+    <p style="margin-top:10px"><span class="badge gray" style="font-size:1.2rem;letter-spacing:2px">{{ admin_user.recovery_code }}</span></p>
+    <p class="muted" style="margin-top:8px">يتغيّر هذا الكود تلقائيًا بعد كل عملية استرجاع.</p>
+  </div>
+</form>
+</div>
+
+<!-- عام -->
+<div class="tab" id="tab-general" style="display:none">
+<form method="post">
+  <input type="hidden" name="section" value="general">
+  <div class="card">
+    <h3>👨‍🏫 بيانات المدرس</h3>
+    <div class="form-row">
+      <div class="field"><label>اسم المدرس</label><input name="teacher_name" value="{{ cfg.teacher_name }}"></div>
+      <div class="field"><label>المادة</label><input name="subject" value="{{ cfg.subject }}"></div>
+    </div>
+    <div class="field"><label>📱 رقم واتساب المدرس (لاستقبال تذكيرات المتأخرات)</label>
+      <input name="teacher_phone" value="{{ cfg.teacher_phone }}" placeholder="مثال: 01012345678"></div>
+    <div class="field"><label>رابط الموقع (يظهر في روابط الامتحان — اتركه فاضي ليُكتشف تلقائيًا بعد النشر)</label>
+      <input name="site_url" value="{{ cfg.site_url }}" placeholder="https://your-site.vercel.app"></div>
+    <div class="field"><label>⏱️ مهلة انتهاء الجلسة (تسجيل خروج تلقائي عند الخمول — للمدرس وأولياء الأمور)</label>
+      {% set st = cfg.session_timeout or '120' %}
+      <select name="session_timeout">
+        <option value="30" {{ 'selected' if st=='30' }}>٣٠ دقيقة</option>
+        <option value="60" {{ 'selected' if st=='60' }}>ساعة</option>
+        <option value="120" {{ 'selected' if st=='120' }}>ساعتان</option>
+        <option value="240" {{ 'selected' if st=='240' }}>٤ ساعات</option>
+        <option value="480" {{ 'selected' if st=='480' }}>٨ ساعات</option>
+        <option value="0" {{ 'selected' if st=='0' }}>بلا مهلة (لا يُنصح)</option>
+        {% if st not in ['30','60','120','240','480','0'] %}
+        <option value="{{ st }}" selected>مخصّص: {{ st }} دقيقة</option>
+        {% endif %}
+      </select>
+      <p class="muted" style="font-size:.78rem;margin-top:4px">للمدة المخصّصة: اكتب رقم الدقائق مباشرةً في الحقل بعد الاختيار من القائمة (يُحفظ كما هو).</p>
+    </div>
+    <div class="field"><label>🎬 حركات الواجهة</label>
+      <select id="animLevel" onchange="setAnimations(this.value)">
+        <option value="off" {{ 'selected' if cfg.ui_animations=='off' }}>إيقاف</option>
+        <option value="simple" {{ 'selected' if cfg.ui_animations=='simple' or not cfg.ui_animations }}>بسيط (افتراضي)</option>
+        <option value="medium" {{ 'selected' if cfg.ui_animations=='medium' }}>متوسط</option>
+        <option value="full" {{ 'selected' if cfg.ui_animations=='full' }}>كامل</option>
+      </select>
+      <p class="muted" style="font-size:.78rem;margin-top:4px">حركات خفيفة واحترافية عند التنقّل. يُحفظ فورًا. يحترم تفضيل «تقليل الحركة» في النظام، والموقع يعمل كاملًا عند الإيقاف.</p>
+    </div>
+    <button class="btn green" type="submit">💾 حفظ</button>
+  </div>
+</form>
+</div>
+
+<!-- الإيميل -->
+<div class="tab" id="tab-email" style="display:none">
+<form method="post">
+  <input type="hidden" name="section" value="email">
+  <div class="card">
+    <h3>📧 إعدادات الإيميل (لإرسال التقارير)</h3>
+    <p class="muted" style="margin-bottom:14px">Gmail: فعّل «التحقق بخطوتين» ثم أنشئ «كلمة مرور التطبيقات» واستخدمها هنا.</p>
+    <div class="form-row">
+      <div class="field"><label>خادم SMTP</label><input name="smtp_host" value="{{ cfg.smtp_host }}"></div>
+      <div class="field"><label>المنفذ</label><input name="smtp_port" value="{{ cfg.smtp_port }}"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>الإيميل (المُرسِل)</label><input name="smtp_user" type="email" value="{{ cfg.smtp_user }}"></div>
+      <div class="field"><label>كلمة مرور التطبيقات {% if cfg.has_pass %}<span class="pill">✅ محفوظة</span>{% endif %}</label>
+        <input name="smtp_pass" type="password" placeholder="{{ 'فاضية = بدون تغيير' if cfg.has_pass else '••••••••' }}"></div>
+    </div>
+    <div class="field"><label>الإيميل المستلم للتقارير</label>
+      <input name="report_email" type="email" value="{{ cfg.report_email }}"></div>
+    <button class="btn green" type="submit">💾 حفظ</button>
+  </div>
+</form>
+</div>
+
+<!-- واتساب API -->
+<div class="tab" id="tab-whatsapp" style="display:none">
+<form method="post">
+  <input type="hidden" name="section" value="whatsapp">
+  <div class="card">
+    <h3>💬 طريقة إرسال الواتساب</h3>
+    <div class="field"><label>الوضع</label>
+      <select name="wa_mode" id="waMode" onchange="toggleWa()">
+        <option value="link" {{ 'selected' if cfg.wa_mode=='link' }}>روابط جاهزة (مجاني - تضغط إرسال بنفسك)</option>
+        <option value="api" {{ 'selected' if cfg.wa_mode=='api' }}>إرسال تلقائي عبر API (مدفوع)</option>
+      </select></div>
+    <div id="apiFields" style="display:none">
+      <p class="muted" style="margin-bottom:14px">اختر مزود الخدمة واملأ البيانات. (UltraMsg أسهل خيار للمصريين، Meta الرسمي، Twilio عالمي.)</p>
+      <div class="field"><label>المزود</label>
+        <select name="wa_provider">
+          <option value="ultramsg" {{ 'selected' if cfg.wa_provider=='ultramsg' }}>UltraMsg</option>
+          <option value="meta" {{ 'selected' if cfg.wa_provider=='meta' }}>Meta (WhatsApp Cloud API)</option>
+          <option value="twilio" {{ 'selected' if cfg.wa_provider=='twilio' }}>Twilio</option>
+        </select></div>
+      <div class="field"><label>API URL / Instance / Account SID</label>
+        <input name="wa_api_url" value="{{ cfg.wa_api_url }}" placeholder="UltraMsg: instance12345  أو الرابط الكامل"></div>
+      <div class="field"><label>Token / Auth Token</label>
+        <input name="wa_api_token" type="password" value="{{ cfg.wa_api_token }}" autocomplete="off"></div>
+      <p class="muted" style="font-size:.82rem;margin-top:-6px">
+        💡 UltraMsg: انسخ <b>Instance ID</b> (مثل instance12345) في خانة API URL و<b>Token</b> في خانة Token.
+        الإرسال يتم من الخادم (backend) بترويسة متصفح صحيحة، والتوكن لا يظهر أبدًا في المتصفح.
+        إذا ظهر خطأ Cloudflare 1010 فهو حظر بناءً على توقيع الطلب وليس خطأ في التوكن — راجع سجل الرسائل للتفاصيل الدقيقة.</p>
+      <div class="form-row">
+        <div class="field"><label>Phone Number ID (Meta فقط)</label>
+          <input name="wa_phone_id" value="{{ cfg.wa_phone_id }}"></div>
+        <div class="field"><label>رقم المُرسِل From (Twilio فقط)</label>
+          <input name="wa_from" value="{{ cfg.wa_from }}" placeholder="whatsapp:+14155238886"></div>
+      </div>
+    </div>
+    <button class="btn green" type="submit">💾 حفظ</button>
+    <a href="{{ url_for('whatsapp_logs') }}" class="btn ghost">📋 سجل الرسائل والتشخيص</a>
+  </div>
+</form>
+</div>
+
+
+<!-- تخصيص الواجهات -->
+
+<div class="tab" id="tab-customize" style="display:none">
+<div class="card" style="background:var(--th-bg)">
+  <h3>🎨 تخصيص واجهات الدخول</h3>
+  <p class="muted" style="font-size:.83rem">نظام موحّد: ارفع شعار كل بوابة، ثم صمّم صور صفحة الدخول (خلفية + صور جانبية/علوية/سفلية تظهر كلها معًا) من محرّر التخطيط. بوابة المعلّم وبوابة ولي الأمر مستقلّتان تمامًا.</p>
+</div>
+
+{# رفع شعار مبسّط لكل بوابة (الشعار يظهر داخل بطاقة الدخول) #}
+<form method="post" enctype="multipart/form-data">
+  <input type="hidden" name="section" value="customize">
+  <div class="card">
+    <h3>🏷️ الشعارات</h3>
+    <div class="form-row">
+      <div class="field">
+        <label>شعار بوابة المعلّم</label>
+        {% if teacher_logo %}<div style="margin-bottom:6px"><img src="{{ teacher_logo }}" style="height:56px;object-fit:contain;border:1px solid var(--border);border-radius:8px;padding:4px"></div>
+        <label style="font-size:.85rem"><input type="checkbox" name="remove_teacher_logo" value="1"> حذف الشعار الحالي</label>{% endif %}
+        <input type="file" name="teacher_logo" accept="image/*">
+      </div>
+      <div class="field">
+        <label>شعار بوابة ولي الأمر</label>
+        {% if parent_logo %}<div style="margin-bottom:6px"><img src="{{ parent_logo }}" style="height:56px;object-fit:contain;border:1px solid var(--border);border-radius:8px;padding:4px"></div>
+        <label style="font-size:.85rem"><input type="checkbox" name="remove_parent_logo" value="1"> حذف الشعار الحالي</label>{% endif %}
+        <input type="file" name="parent_logo" accept="image/*">
+      </div>
+    </div>
+    <button class="btn green" type="submit">💾 حفظ الشعارات</button>
+  </div>
+</form>
+
+{# ═══ محرّر تخطيط صور صفحة الدخول (متعدد الصور + معاينة حية) ═══ #}
+{% macro login_layout_editor(portal, label) %}
+<div class="card ll-editor" data-portal="{{ portal }}">
+  <h3>🖼️ تخطيط صفحة دخول {{ label }}</h3>
+  <p class="muted" style="font-size:.83rem">ارفع عدة صور وحدّد مكان كل صورة (خلفية/جانب/أعلى...) وموضع نموذج الدخول. المعاينة تحاكي صفحة الدخول الحقيقية. اختياري تمامًا — لو تركته فارغًا يبقى التصميم الحالي.</p>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+    <!-- المعاينة -->
+    <div style="flex:2;min-width:300px">
+      <div class="ll-preview" id="llp_{{ portal }}"
+           style="position:relative;height:320px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:linear-gradient(135deg,#1e3a8a,#2563eb)">
+        <!-- تُملأ الصور + نموذج وهمي عبر JS -->
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+        <label style="font-size:.85rem">موضع نموذج الدخول:
+          <select id="llform_{{ portal }}" onchange="llSetForm('{{ portal }}',this.value)">
+            <option value="center">وسط</option><option value="right">يمين</option>
+            <option value="left">يسار</option><option value="top">أعلى</option>
+            <option value="bottom">أسفل</option>
+          </select>
+        </label>
+        <label class="btn sm" style="cursor:pointer">➕ إضافة صورة
+          <input type="file" accept="image/*" style="display:none" onchange="llAddImg('{{ portal }}',this)"></label>
+        <button type="button" class="btn sm green" onclick="llSave('{{ portal }}')">💾 حفظ التخطيط</button>
+        <button type="button" class="btn sm ghost" onclick="llClear('{{ portal }}')">مسح الكل</button>
+      </div>
+    </div>
+    <!-- قائمة الصور وأدوات كل صورة -->
+    <div style="flex:1;min-width:250px">
+      <div id="lllist_{{ portal }}" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{{ login_layout_editor('teacher', 'المعلّم') }}
+{{ login_layout_editor('parent', 'ولي الأمر') }}
+
+<div class="card">
+  <p class="muted" style="font-size:.82rem;margin:0">تُحفظ الصور والتخطيط داخل قاعدة البيانات، فتظل تعمل بعد تسجيل الخروج وإعادة التشغيل والنشر والنسخ الاحتياطي. الحد الأقصى ~3 ميجابايت للصورة. استخدم زر «💾 حفظ التخطيط» داخل كل محرّر.</p>
+</div>
+</div>
+
+<!-- Supabase -->
+
+<div class="tab" id="tab-supabase" style="display:none">
+  <div class="card" style="background:{{ '#dcfce7' if db_backend=='postgres' else '#fffbeb' }}">
+    <h3>🗄️ قاعدة البيانات الحالية</h3>
+    {% if db_backend == 'postgres' %}
+      <p>✅ الموقع متصل بـ <b>Supabase / Postgres</b> — البيانات محفوظة في السحابة بأمان ولا تضيع. (الوضع الموصى به للنشر على Vercel.)</p>
+    {% else %}
+      <p>💾 الموقع يستخدم حاليًا <b>قاعدة بيانات محلية (SQLite)</b> — مناسب للتجربة على جهازك.
+      للنشر على Vercel، اضبط متغير البيئة <code>DATABASE_URL</code> برابط Supabase (راجع ملف VERCEL.md).</p>
+    {% endif %}
+  </div>
+<form method="post">
+  <input type="hidden" name="section" value="supabase">
+  <input type="hidden" name="supabase_form" value="connection">
+  <div class="card">
+    <h3>☁️ Supabase (نسخ احتياطي إضافي - اختياري)</h3>
+    <p class="muted" style="margin-bottom:14px">
+      Supabase قاعدة بيانات مجانية على الإنترنت تحفظ بياناتك عشان متضيعش. 
+      اعمل حساب على supabase.com، أنشئ مشروع، وخذ الـ URL والمفتاح (anon key) من Settings > API.
+    </p>
+    <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer">
+      <input type="checkbox" name="supabase_enabled" style="width:22px;height:22px" {{ 'checked' if cfg.supabase_enabled=='1' }}>
+      <span style="font-weight:600">تفعيل Supabase</span>
+    </label>
+    <div class="field"><label>Supabase URL</label>
+      <input name="supabase_url" value="{{ cfg.supabase_url }}" placeholder="https://xxxxx.supabase.co"></div>
+    <div class="field"><label>Supabase API Key (anon/service)</label>
+      <input name="supabase_key" value="{{ cfg.supabase_key }}"></div>
+    <button class="btn green" type="submit">💾 حفظ إعدادات Supabase</button>
+  </div>
+</form>
+
+<!-- النسخ الاحتياطي التلقائي -->
+<form method="post">
+  <input type="hidden" name="section" value="supabase">
+  <input type="hidden" name="supabase_form" value="backup">
+  <div class="card">
+    <h3>🔄 النسخ الاحتياطي التلقائي إلى Supabase</h3>
+    <p class="muted" style="margin-bottom:12px">يرفع نسخة من بياناتك تلقائيًا كل فترة (تحديث آمن بلا تكرار). يستأنف تلقائيًا بعد إعادة تشغيل التطبيق.</p>
+    <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer">
+      <input type="checkbox" name="auto_backup_enabled" style="width:22px;height:22px" {{ 'checked' if cfg.auto_backup_enabled=='1' }}>
+      <span style="font-weight:600">تفعيل النسخ الاحتياطي التلقائي</span>
+    </label>
+    <div class="field"><label>تكرار النسخ</label>
+      {% set iv = cfg.auto_backup_interval or '60' %}
+      <select name="auto_backup_interval">
+        <option value="15" {{ 'selected' if iv=='15' }}>كل ١٥ دقيقة</option>
+        <option value="30" {{ 'selected' if iv=='30' }}>كل ٣٠ دقيقة</option>
+        <option value="60" {{ 'selected' if iv=='60' }}>كل ساعة</option>
+        <option value="360" {{ 'selected' if iv=='360' }}>كل ٦ ساعات</option>
+        <option value="720" {{ 'selected' if iv=='720' }}>كل ١٢ ساعة</option>
+        <option value="1440" {{ 'selected' if iv=='1440' }}>يوميًا</option>
+        {% if iv not in ['15','30','60','360','720','1440'] %}
+        <option value="{{ iv }}" selected>مخصّص: {{ iv }} دقيقة</option>
+        {% endif %}
+      </select>
+    </div>
+    <button class="btn green" type="submit">💾 حفظ إعدادات النسخ التلقائي</button>
+
+    <div style="margin-top:16px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px" id="backupStatus">
+      <h4 style="margin:0 0 8px">📊 حالة النسخ الاحتياطي</h4>
+      <div class="row" style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>آخر نسخة ناجحة:</span>
+        <b id="bkLast">{{ cfg.auto_backup_last or '— لا يوجد —' }}</b>
+      </div>
+      <div class="row" style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>النسخة القادمة المجدولة:</span>
+        <b id="bkNext">{{ cfg.auto_backup_next or '—' }}</b>
+      </div>
+      <div class="row" style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>الحالة:</span>
+        <b id="bkStatus">
+          {% if cfg.auto_backup_last_status=='success' %}<span class="badge present">ناجحة ✅</span>
+          {% elif cfg.auto_backup_last_status=='failed' %}<span class="badge absent">فشلت ❌</span>
+          {% else %}<span class="badge gray">لم تُنفّذ بعد</span>{% endif %}
+        </b>
+      </div>
+      {% if cfg.auto_backup_last_error %}
+      <div class="row" style="padding:6px 0;color:#b91c1c;font-size:.82rem" id="bkErr">آخر خطأ: {{ cfg.auto_backup_last_error }}</div>
+      {% endif %}
+      <button type="button" class="btn sm ghost" style="margin-top:8px" onclick="refreshBackup()">🔄 تحديث الحالة</button>
+    </div>
+  </div>
+</form>
+
+  <div class="card">
+    <h3>🩺 فحص توافق مخطط قاعدة البيانات</h3>
+    <p class="muted" style="font-size:.85rem;margin-bottom:10px">
+      افحص توافق مخطط Supabase مع التطبيق قبل الاسترجاع. لو ظهر نقص/أعمدة قديمة، شغّل «سكربت المزامنة» بالأسفل.</p>
+    <button type="button" class="btn" onclick="checkSchema()">🩺 فحص المخطط الآن</button>
+    <div id="schemaResult" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <h3>🔧 إجراءات Supabase</h3>
+    <div class="actions" style="margin-bottom:16px">
+      <a href="{{ url_for('supabase_test') }}" class="btn ghost">🔌 اختبار الاتصال</a>
+      <a href="{{ url_for('supabase_backup') }}" class="btn green">⬆️ رفع نسخة احتياطية للسحابة</a>
+      <a href="{{ url_for('supabase_restore') }}" class="btn amber" onclick="return confirm('استرجاع البيانات من السحابة؟ سيتم دمجها مع البيانات المحلية.')">⬇️ استرجاع من السحابة</a>
+    </div>
+    <div class="actions" style="margin-bottom:16px">
+      <a href="{{ url_for('supabase_migration_sql', download='1') }}" class="btn">⬇️ تحميل سكربت مزامنة Supabase</a>
+      <a href="{{ url_for('download_schema') }}" class="btn ghost">schema.sql (SQLite)</a>
+      <a href="{{ url_for('download_schema', d='pg') }}" class="btn ghost">schema (Postgres)</a>
+    </div>
+    <p class="muted" style="font-size:.82rem;margin-bottom:10px">ℹ️ سكربت المزامنة يُبنى تلقائيًا من بنية التطبيق الحالية: يضيف الأعمدة الناقصة، ويحذف الأعمدة القديمة غير المستخدمة (مثل system_prompt)، دون حذف أي بيانات.</p>
+    <details>
+      <summary style="cursor:pointer;font-weight:700;color:var(--primary)">📋 عرض سكربت مزامنة Supabase (انسخه إلى SQL Editor)</summary>
+      <pre style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:10px;overflow-x:auto;margin-top:12px;font-size:.8rem;direction:ltr;text-align:left">{{ schema_sql }}</pre>
+    </details>
+  </div>
+</div>
+
+<style>
+.tab-btn{background:#f1f5f9;border:none;padding:10px 16px;border-radius:10px;font-weight:600;
+  cursor:pointer;font-family:inherit;color:var(--muted);font-size:.9rem}
+.tab-btn.active{background:var(--primary);color:#fff}
+</style>
+{% block scripts %}
+<script>
+// ═══════════ محرّر تخطيط صفحة الدخول (متعدد الصور) ═══════════
+var LL = {
+  teacher: {{ teacher_login_layout_obj|tojson }},
+  parent: {{ parent_login_layout_obj|tojson }}
+};
+var LL_MODES=[["background","خلفية كاملة"],["fullscreen","ملء الشاشة"],["top","أعلى الصفحة"],
+  ["bottom","أسفل الصفحة"],["right","يمين النموذج"],["left","يسار النموذج"],
+  ["beside","بجوار النموذج"],["top_bottom","أعلى وأسفل"],["sides","الجانبان"]];
+function llEnsure(p){ if(!LL[p]||!LL[p].images){ LL[p]={images:[],form_pos:'center'}; } return LL[p]; }
+function llAddImg(p, input){
+  var f=input.files && input.files[0]; if(!f) return;
+  if(f.size > 3000000){ alert('حجم الصورة كبير (الحد ~3 ميجابايت).'); return; }
+  var rd=new FileReader();
+  rd.onload=function(ev){
+    llEnsure(p).images.push({src:ev.target.result,mode:'background',x:50,y:50,scale:100,rotation:0,fit:'cover',z:1,opacity:100});
+    llRender(p);
+  };
+  rd.readAsDataURL(f); input.value='';
+}
+function llSetForm(p,v){ llEnsure(p).form_pos=v; llRender(p); }
+function llDel(p,i){ LL[p].images.splice(i,1); llRender(p); }
+function llSet(p,i,k,v){ LL[p].images[i][k]=v; llRenderPreview(p); }
+function llMove(p,i,dir){
+  var im=LL[p].images[i];
+  if(dir==='left') im.x=Math.max(0,im.x-5);
+  else if(dir==='right') im.x=Math.min(100,im.x+5);
+  else if(dir==='up') im.y=Math.max(0,im.y-5);
+  else if(dir==='down') im.y=Math.min(100,im.y+5);
+  else if(dir==='zin') im.scale=Math.min(400,im.scale+10);
+  else if(dir==='zout') im.scale=Math.max(10,im.scale-10);
+  else if(dir==='rot') im.rotation=((im.rotation+15+180)%360)-180;
+  else if(dir==='reset'){ im.x=50;im.y=50;im.scale=100;im.rotation=0; }
+  llRender(p);
+}
+function _llPlace(mode){
+  switch(mode){
+    case 'top': return 'top:0;right:0;width:100%;height:28%';
+    case 'bottom': return 'bottom:0;right:0;width:100%;height:28%';
+    case 'right': return 'top:0;right:0;width:30%;height:100%';
+    case 'left': return 'top:0;left:0;width:30%;height:100%';
+    default: return 'top:0;right:0;width:100%;height:100%';
+  }
+}
+function llRenderPreview(p){
+  var pv=document.getElementById('llp_'+p); if(!pv) return;
+  pv.querySelectorAll('.llpi,.llform').forEach(function(e){e.remove();});
+  var imgs=LL[p].images.slice().sort(function(a,b){return (a.z||0)-(b.z||0);});
+  imgs.forEach(function(it){
+    var d=document.createElement('div'); d.className='llpi';
+    d.style.cssText='position:absolute;overflow:hidden;'+_llPlace(it.mode)+';z-index:'+((it.mode==='background'||it.mode==='fullscreen')?0:(it.z||1))+';opacity:'+((it.opacity||100)/100);
+    var im=document.createElement('img'); im.src=it.src;
+    im.style.cssText='width:100%;height:100%;object-fit:'+(it.fit||'cover')+';object-position:'+(it.x||50)+'% '+(it.y||50)+'%;transform:scale('+((it.scale||100)/100)+') rotate('+(it.rotation||0)+'deg)';
+    d.appendChild(im); pv.appendChild(d);
+  });
+  // نموذج دخول وهمي
+  var box=document.createElement('div'); box.className='llform';
+  box.style.cssText='position:absolute;background:#fff;border-radius:12px;padding:14px;width:120px;box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:50;text-align:center';
+  box.innerHTML='<div style="width:34px;height:34px;background:#2563eb;border-radius:8px;margin:0 auto 6px"></div><div style="height:8px;background:#e2e8f0;border-radius:4px;margin:5px 0"></div><div style="height:22px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;margin:5px 0"></div><div style="height:24px;background:#2563eb;border-radius:6px;margin-top:6px"></div>';
+  var fp=LL[p].form_pos||'center';
+  var pos={center:'top:50%;left:50%;transform:translate(-50%,-50%)',
+    right:'top:50%;right:6%;left:auto;transform:translateY(-50%)',
+    left:'top:50%;left:6%;transform:translateY(-50%)',
+    top:'top:6%;left:50%;transform:translateX(-50%)',
+    bottom:'bottom:6%;left:50%;top:auto;transform:translateX(-50%)'}[fp];
+  box.style.cssText+=';'+pos;
+  pv.appendChild(box);
+  var fs=document.getElementById('llform_'+p); if(fs) fs.value=fp;
+}
+function llRenderList(p){
+  var host=document.getElementById('lllist_'+p); if(!host) return;
+  host.innerHTML='';
+  LL[p].images.forEach(function(it,i){
+    var card=document.createElement('div');
+    card.style.cssText='border:1px solid var(--border);border-radius:10px;padding:8px;display:flex;gap:8px;align-items:flex-start';
+    var modeOpts=LL_MODES.map(function(m){return '<option value="'+m[0]+'"'+(it.mode===m[0]?' selected':'')+'>'+m[1]+'</option>';}).join('');
+    card.innerHTML=
+      '<img src="'+it.src+'" style="width:52px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0">'+
+      '<div style="flex:1;min-width:0">'+
+      '<select style="width:100%;font-size:.78rem;margin-bottom:4px" onchange="llSet(\''+p+'\','+i+',\'mode\',this.value)">'+modeOpts+'</select>'+
+      '<div style="display:flex;gap:3px;flex-wrap:wrap">'+
+        '<button type="button" class="btn sm ghost" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'left\')">←</button>'+
+        '<button type="button" class="btn sm ghost" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'right\')">→</button>'+
+        '<button type="button" class="btn sm ghost" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'up\')">↑</button>'+
+        '<button type="button" class="btn sm ghost" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'down\')">↓</button>'+
+        '<button type="button" class="btn sm" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'zin\')">🔍+</button>'+
+        '<button type="button" class="btn sm" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'zout\')">🔍-</button>'+
+        '<button type="button" class="btn sm ghost" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'rot\')">↻</button>'+
+        '<button type="button" class="btn sm amber" style="padding:2px 6px" onclick="llMove(\''+p+'\','+i+',\'reset\')">⟲</button>'+
+        '<button type="button" class="btn sm red" style="padding:2px 6px" onclick="llDel(\''+p+'\','+i+')">✕</button>'+
+      '</div>'+
+      '<label style="font-size:.72rem;display:block;margin-top:4px">التحجيم: '+
+        '<select style="font-size:.72rem" onchange="llSet(\''+p+'\','+i+',\'fit\',this.value)">'+
+        '<option value="cover"'+(it.fit==='cover'?' selected':'')+'>Cover</option>'+
+        '<option value="contain"'+(it.fit==='contain'?' selected':'')+'>Contain</option></select></label>'+
+      '</div>';
+    host.appendChild(card);
+  });
+}
+function llRender(p){ llRenderPreview(p); llRenderList(p); }
+function llClear(p){ if(!confirm('مسح كل صور التخطيط لهذه البوابة؟'))return; LL[p]={images:[],form_pos:'center'}; llRender(p); llSave(p,true); }
+function llSave(p, silent){
+  fetch('/settings/login-layout/'+p,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(LL[p])}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){ LL[p]=d.layout; llRender(p); if(!silent) alert('تم حفظ التخطيط ✅'); }
+    else { alert(d.error||'تعذّر الحفظ'); }
+  }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+['teacher','parent'].forEach(function(p){ if(document.getElementById('llp_'+p)){ llEnsure(p); llRender(p); } });
+function showTab(name,btn){
+  document.querySelectorAll('.tab').forEach(t=>t.style.display='none');
+  document.getElementById('tab-'+name).style.display='block';
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  if(btn){ btn.classList.add('active'); }
+  else {
+    var b=document.querySelector('.tab-btn[data-tab="'+name+'"]');
+    if(b) b.classList.add('active');
+  }
+}
+function setAnimations(level){
+  document.documentElement.setAttribute('data-anim',level);
+  try{ localStorage.setItem('ui_animations',level); }catch(e){}
+  fetch('{{ url_for("set_animations") }}',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({level:level})}).catch(function(){});
+}
+function toggleWa(){
+  document.getElementById('apiFields').style.display =
+    document.getElementById('waMode').value==='api'?'block':'none';
+}
+// تحديث حالة النسخ الاحتياطي التلقائي
+function refreshBackup(){
+  fetch('{{ url_for("auto_backup_status") }}').then(function(r){return r.json();}).then(function(d){
+    document.getElementById('bkLast').textContent = d.last || '— لا يوجد —';
+    document.getElementById('bkNext').textContent = d.next || '—';
+    var st=document.getElementById('bkStatus');
+    if(d.last_status==='success') st.innerHTML='<span class="badge present">ناجحة ✅</span>';
+    else if(d.last_status==='failed') st.innerHTML='<span class="badge absent">فشلت ❌</span>';
+    else st.innerHTML='<span class="badge gray">لم تُنفّذ بعد</span>';
+    var errEl=document.getElementById('bkErr');
+    if(d.last_error){ if(!errEl){ errEl=document.createElement('div'); errEl.id='bkErr'; errEl.style.cssText='padding:6px 0;color:#b91c1c;font-size:.82rem'; document.getElementById('backupStatus').appendChild(errEl);} errEl.textContent='آخر خطأ: '+d.last_error; }
+    else if(errEl){ errEl.remove(); }
+  }).catch(function(){});
+}
+// افتح التبويب النشط (بعد الحفظ يبقى المستخدم على نفس التبويب)
+function renderReport(report){
+  if(!report || !report.length) return '';
+  var h='<details style="margin-top:10px" open><summary style="cursor:pointer;font-size:.85rem"><b>تقرير توافق المخطط (جدولًا جدولًا)</b></summary>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-top:6px">';
+  h+='<tr style="background:#f1f5f9"><th style="text-align:right;padding:4px">الجدول</th><th style="text-align:right;padding:4px">مفتاح التعارض</th><th style="text-align:right;padding:4px">القيد المطلوب</th><th style="text-align:center;padding:4px">الحالة</th></tr>';
+  for(var i=0;i<report.length;i++){
+    var row=report[i];
+    var st = row.ok ? '<span style="color:#16a34a">✅</span>' : '<span style="color:#dc2626">❌</span>';
+    var issues = row.ok ? '' : '<div style="color:#dc2626;font-size:.75rem">'+(row.issues||[]).join('؛ ')+'</div>';
+    h+='<tr style="border-bottom:1px solid #e2e8f0"><td style="padding:4px"><b>'+row.table+'</b>'+issues+'</td>'
+      +'<td style="padding:4px;direction:ltr;text-align:right">'+row.conflict_target+'</td>'
+      +'<td style="padding:4px;direction:ltr;text-align:right">'+row.required_constraint+'</td>'
+      +'<td style="padding:4px;text-align:center">'+st+'</td></tr>';
+  }
+  h+='</table></details>';
+  return h;
+}
+function checkSchema(){
+  var box=document.getElementById('schemaResult');
+  box.innerHTML='<span class="muted">جارٍ فحص المخطط...</span>';
+  fetch('{{ url_for("supabase_schema_check") }}').then(function(r){return r.json();}).then(function(d){
+    if(!d.connected){ box.innerHTML='<div class="flash error">'+(d.message||'تعذّر الاتصال')+'</div>'; return; }
+    if(d.ok){ box.innerHTML='<div class="flash success">✅ '+d.message+'</div>'+renderReport(d.report); return; }
+    var html='<div class="flash error">⚠️ '+d.message+'</div>';
+    if(d.missing_tables && d.missing_tables.length){
+      html+='<p style="font-size:.85rem"><b>جداول ناقصة:</b> '+d.missing_tables.join(', ')+'</p>';
+    }
+    if(d.missing && Object.keys(d.missing).length){
+      html+='<p style="font-size:.85rem"><b>أعمدة ناقصة:</b></p><ul style="font-size:.82rem">';
+      for(var t in d.missing){ html+='<li>'+t+': '+d.missing[t].join(', ')+'</li>'; }
+      html+='</ul>';
+    }
+    if(d.obsolete && Object.keys(d.obsolete).length){
+      html+='<p style="font-size:.85rem"><b>أعمدة قديمة يجب حذفها:</b></p><ul style="font-size:.82rem">';
+      for(var t2 in d.obsolete){ html+='<li>'+t2+': '+d.obsolete[t2].join(', ')+'</li>'; }
+      html+='</ul>';
+    }
+    if(d.missing_constraints && Object.keys(d.missing_constraints).length){
+      html+='<p style="font-size:.85rem"><b>❌ قيود UNIQUE ناقصة (لازمة للنسخ الاحتياطي — تمنع خطأ 42P10):</b></p><ul style="font-size:.82rem">';
+      for(var t3 in d.missing_constraints){ html+='<li>'+t3+': UNIQUE('+d.missing_constraints[t3].join(', ')+')</li>'; }
+      html+='</ul>';
+    }
+    if(d.rpc_missing){
+      html+='<p style="font-size:.82rem;color:#b45309">ℹ️ دالة فحص القيود غير منشورة بعد على Supabase — سيُنشئها سكربت المزامنة تلقائيًا.</p>';
+    }
+    html+=renderReport(d.report);
+    html+='<p style="font-size:.85rem">▶️ شغّل «سكربت مزامنة Supabase» بالأسفل في SQL Editor ثم أعد الفحص.</p>';
+    box.innerHTML=html;
+  }).catch(function(){ box.innerHTML='<div class="flash error">تعذّر الفحص.</div>'; });
+}
+showTab({{ active_tab|tojson }});
+toggleWa();
+</script>
+{% endblock %}
+{% endblock %}

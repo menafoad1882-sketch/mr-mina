@@ -1,0 +1,66 @@
+{# يعرض صور تخطيط الدخول (متعدد) ويضبط موضع نموذج الدخول حسب JSON محفوظ.
+   الاستخدام: {% include "_login_layout.html" %} داخل <body>، مع تعريف متغير
+   login_layout_json (نص JSON) و form selector عبر .box . اختياري تمامًا: لو فارغ
+   لا يغيّر شيئًا (يبقى التصميم الحالي). #}
+<style>
+.ll-img{position:fixed;overflow:hidden;pointer-events:none;z-index:0}
+.ll-img img{width:100%;height:100%;display:block}
+@media(max-width:820px){
+  /* على الموبايل: الصور الجانبية تختفي، الخلفية تبقى */
+  .ll-img[data-mode="right"],.ll-img[data-mode="left"],
+  .ll-img[data-mode="beside"],.ll-img[data-mode="sides"]{display:none!important}
+}
+body.ll-active .box{position:relative;z-index:5}
+</style>
+<div id="llImages"></div>
+<script>
+(function(){
+  var raw = {{ login_layout_json|tojson if login_layout_json is defined else '"{}"'|safe }};
+  var cfg;
+  try{ cfg = (typeof raw==='string') ? JSON.parse(raw||'{}') : (raw||{}); }catch(e){ cfg={}; }
+  if(!cfg || !cfg.images || !cfg.images.length){ return; }  // لا تخطيط → التصميم الحالي
+  document.body.classList.add('ll-active');
+  var host=document.getElementById('llImages');
+  // مواضع أنماط العرض المختلفة (نسبة من الشاشة)
+  function place(el, mode){
+    var s={};
+    switch(mode){
+      case 'background': case 'fullscreen':
+        s={top:'0',right:'0',width:'100vw',height:'100vh'}; break;
+      case 'top': s={top:'0',right:'0',width:'100vw',height:'28vh'}; break;
+      case 'bottom': s={bottom:'0',right:'0',width:'100vw',height:'28vh'}; break;
+      case 'right': s={top:'0',right:'0',width:'30vw',height:'100vh'}; break;
+      case 'left': s={top:'0',left:'0',width:'30vw',height:'100vh'}; break;
+      default: s={top:'0',right:'0',width:'100vw',height:'100vh'};
+    }
+    for(var k in s){ el.style[k]=s[k]; }
+  }
+  // رتّب حسب z ليكون background خلف الكل
+  var imgs=cfg.images.slice().sort(function(a,b){return (a.z||0)-(b.z||0);});
+  imgs.forEach(function(it){
+    var box=document.createElement('div'); box.className='ll-img'; box.setAttribute('data-mode',it.mode||'background');
+    place(box, it.mode||'background');
+    box.style.zIndex = (it.mode==='background'||it.mode==='fullscreen')?0:(it.z||1);
+    if(it.opacity!=null){ box.style.opacity=(it.opacity/100); }
+    var img=document.createElement('img'); img.src=it.src;
+    img.style.objectFit = it.fit||'cover';
+    img.style.objectPosition = (it.x||50)+'% '+(it.y||50)+'%';
+    var tr='';
+    if(it.scale && it.scale!=100){ tr+=' scale('+(it.scale/100)+')'; }
+    if(it.rotation){ tr+=' rotate('+it.rotation+'deg)'; }
+    if(tr){ img.style.transform=tr.trim(); }
+    box.appendChild(img); host.appendChild(box);
+  });
+  // موضع نموذج الدخول
+  var fp=cfg.form_pos||'center';
+  var box=document.querySelector('.box');
+  if(box && fp!=='center'){
+    var body=document.body;
+    body.style.placeItems='';  // ألغِ التوسيط الافتراضي (grid place-items:center)
+    if(fp==='right'){ body.style.justifyContent='flex-start'; box.style.marginRight='4vw'; }
+    else if(fp==='left'){ body.style.justifyContent='flex-end'; box.style.marginLeft='4vw'; }
+    else if(fp==='top'){ body.style.alignItems='flex-start'; box.style.marginTop='6vh'; }
+    else if(fp==='bottom'){ body.style.alignItems='flex-end'; box.style.marginBottom='6vh'; }
+  }
+})();
+</script>

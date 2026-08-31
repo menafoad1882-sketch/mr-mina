@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}أولياء الأمور{% endblock %}
+{% block heading %}حسابات أولياء الأمور{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn" onclick="openModal('addParent')">➕ إنشاء حساب ولي أمر</button>
+  <a href="{{ url_for('parent_login') }}" target="_blank" class="btn ghost">🔗 رابط بوابة أولياء الأمور</a>
+</div>
+
+<div class="card" style="background:#ecfeff">
+  <p>أنشئ حسابًا لكل ولي أمر واربطه بطالب أو أكثر. يستطيع ولي الأمر الدخول لبوابة خاصة لمتابعة
+  <b>حضور ودرجات ومستوى</b> أبنائه فقط — بدون أي وصول لبيانات الطلاب الآخرين أو التقارير المالية أو الإعدادات.</p>
+</div>
+
+<div class="card">
+  {% if parents %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>ولي الأمر</th><th>اسم المستخدم</th><th>الهاتف</th><th>الأبناء المرتبطون</th><th>الحالة</th><th>إجراءات</th></tr>
+    {% for p in parents %}
+    <tr>
+      <td><b>{{ p.name or '-' }}</b></td>
+      <td><span class="pill">{{ p.username }}</span></td>
+      <td>{{ p.phone or '-' }}</td>
+      <td>
+        {% for s in p.students %}<span class="badge gray">{{ s.name }}</span> {% endfor %}
+        {% if not p.students %}<span class="muted">لا يوجد</span>{% endif %}
+      </td>
+      <td>{% if p.active %}<span class="badge present">مفعّل</span>{% else %}<span class="badge absent">موقوف</span>{% endif %}</td>
+      <td class="actions">
+        <button class="btn sm" onclick='editParent({{ p.id }}, {{ p.name|tojson }}, {{ p.username|tojson }}, {{ (p.phone or "")|tojson }}, {{ p.students|map(attribute="id")|list|tojson }})'>تعديل</button>
+        <a href="{{ url_for('reset_parent_password', pid=p.id) }}" class="btn sm ghost">🔑 كلمة مرور جديدة</a>
+        <a href="{{ url_for('send_parent_login', pid=p.id) }}" class="btn sm wa">💬 إرسال البيانات</a>
+        <a href="{{ url_for('toggle_parent', pid=p.id) }}" class="btn sm amber">{{ 'إيقاف' if p.active else 'تفعيل' }}</a>
+        <a href="{{ url_for('delete_parent', pid=p.id) }}" class="btn sm red" onclick="return confirm('حذف حساب ولي الأمر؟')">حذف</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">👨‍👩‍👦</div>لا توجد حسابات أولياء أمور. أنشئ أول حساب.</div>
+  {% endif %}
+</div>
+
+<!-- Add modal -->
+<div class="modal" id="addParent">
+  <div class="modal-box">
+    <div class="modal-head"><h3>إنشاء حساب ولي أمر</h3>
+      <button class="close" onclick="closeModal('addParent')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_parent') }}">
+      <p class="muted" style="margin-bottom:12px">اختر المجموعة ثم الطالب — وسيُجلب رقم واتساب ولي الأمر واسمه تلقائيًا من بيانات الطالب.</p>
+
+      <!-- الخطوة 1: المجموعة -->
+      <div class="field"><label>1️⃣ اختر المجموعة</label>
+        <select id="ap_group" onchange="apFilterStudents()">
+          <option value="">— كل المجموعات —</option>
+          {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+          <option value="__none__">بدون مجموعة</option>
+        </select></div>
+
+      <!-- الخطوة 2: الطالب -->
+      <div class="field"><label>2️⃣ اختر الطالب/الأبناء</label>
+        <select name="student_ids" id="ap_students" multiple size="6" style="height:auto" onchange="apAutoFill()"></select>
+        <p class="muted" style="font-size:.8rem;margin-top:4px">اضغط Ctrl (أو Cmd) لاختيار أكثر من طالب لنفس ولي الأمر.</p>
+      </div>
+
+      <!-- الخطوة 3: بيانات تلقائية -->
+      <div class="form-row">
+        <div class="field"><label>اسم ولي الأمر (تلقائي)</label><input name="name" id="ap_name" placeholder="يُملأ تلقائيًا"></div>
+        <div class="field"><label>واتساب ولي الأمر (تلقائي من بيانات الطالب)</label>
+          <input name="phone" id="ap_phone" readonly placeholder="يُجلب من سجل الطالب"></div>
+      </div>
+      <!-- تنبيه: ولي أمر موجود بنفس الرقم -->
+      <div id="ap_existing" style="display:none;background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:12px">
+        <div id="ap_existing_msg" style="font-weight:600"></div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:400">
+          <input type="checkbox" id="ap_link_existing" checked> إضافة الطالب إلى حساب ولي الأمر الحالي (بدل إنشاء حساب جديد)
+        </label>
+      </div>
+      <input type="hidden" name="force_new_account" id="ap_force_new" value="0">
+
+      <!-- الخطوة 4: بيانات الدخول -->
+      <div class="form-row">
+        <div class="field"><label>اسم المستخدم (اختياري)</label><input name="username" placeholder="يُولّد تلقائيًا لو تُرك فاضي"></div>
+        <div class="field"><label>كلمة المرور (اختياري)</label><input name="password" placeholder="تُولّد تلقائيًا لو تُرك فاضي"></div>
+      </div>
+      <button class="btn green" type="submit">إنشاء الحساب وربطه بالطالب</button>
+    </form>
+  </div>
+</div>
+
+<!-- Edit modal -->
+<div class="modal" id="editParent">
+  <div class="modal-box">
+    <div class="modal-head"><h3>تعديل حساب ولي أمر</h3>
+      <button class="close" onclick="closeModal('editParent')">&times;</button></div>
+    <form method="post" id="editParentForm">
+      <div class="form-row">
+        <div class="field"><label>اسم ولي الأمر</label><input name="name" id="ep_name"></div>
+        <div class="field"><label>رقم الهاتف</label><input name="phone" id="ep_phone"></div>
+      </div>
+      <div class="field"><label>اسم المستخدم</label><input name="username" id="ep_username" required></div>
+      <div class="field"><label>ربط الأبناء</label>
+        <select name="student_ids" id="ep_students" multiple size="6" style="height:auto">
+          {% for s in all_students %}<option value="{{ s.id }}">{{ s.name }} {% if s.group_name %}({{ s.group_name }}){% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <button class="btn green" type="submit">حفظ التعديلات</button>
+    </form>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+var ALL_STUDENTS = {{ students_js|tojson }};
+
+// خطوة 2: فلترة الطلاب حسب المجموعة المختارة
+function apFilterStudents(){
+  var g = document.getElementById('ap_group').value;
+  var sel = document.getElementById('ap_students');
+  sel.innerHTML = '';
+  ALL_STUDENTS.forEach(function(s){
+    var match = (!g) ? true : (g==='__none__' ? !s.group_id : String(s.group_id)===g);
+    if(match){
+      var o=document.createElement('option');
+      o.value=s.id; o.textContent=s.name+' ('+s.group_name+')';
+      o.setAttribute('data-phone', s.parent_phone||'');
+      o.setAttribute('data-name', s.name||'');
+      sel.appendChild(o);
+    }
+  });
+  document.getElementById('ap_phone').value='';
+  document.getElementById('ap_name').value='';
+}
+
+// خطوة 3: جلب رقم الواتساب واسم ولي الأمر تلقائيًا من بيانات الطالب المختار
+function apAutoFill(){
+  var sel=document.getElementById('ap_students');
+  var chosen=Array.from(sel.selectedOptions);
+  if(chosen.length===0){ return; }
+  var first=chosen[0];
+  var phone=first.getAttribute('data-phone')||'';
+  var sname=first.getAttribute('data-name')||'';
+  document.getElementById('ap_phone').value=phone;
+  if(!document.getElementById('ap_name').value){
+    document.getElementById('ap_name').value = sname ? ('ولي أمر '+sname) : '';
+  }
+  apCheckExisting(phone);
+}
+// كشف حساب ولي أمر موجود بنفس الرقم وعرض تنبيه + خيار الربط
+function apCheckExisting(phone){
+  var box=document.getElementById('ap_existing');
+  if(!phone){ box.style.display='none'; return; }
+  fetch('{{ url_for("parents_check_phone") }}?phone='+encodeURIComponent(phone))
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.exists){
+        var kids=(d.children||[]).join('، ');
+        document.getElementById('ap_existing_msg').innerHTML=
+          '⚠️ هذا الرقم مسجّل بالفعل لولي أمر: <b>'+d.parent_name+'</b> (المستخدم: '+d.username+')'+
+          (kids?('<br>الأبناء الحاليون: '+kids):'');
+        box.style.display='block';
+        var cb=document.getElementById('ap_link_existing');
+        cb.onchange=function(){ document.getElementById('ap_force_new').value = cb.checked?'0':'1'; };
+        document.getElementById('ap_force_new').value='0';
+      } else {
+        box.style.display='none';
+        document.getElementById('ap_force_new').value='0';
+      }
+    }).catch(function(){});
+}
+
+function editParent(id,name,username,phone,studentIds){
+  document.getElementById('editParentForm').action='/parents/'+id+'/edit';
+  document.getElementById('ep_name').value=name||'';
+  document.getElementById('ep_phone').value=phone||'';
+  document.getElementById('ep_username').value=username||'';
+  var sel=document.getElementById('ep_students');
+  Array.from(sel.options).forEach(function(o){ o.selected = studentIds.indexOf(parseInt(o.value))>=0; });
+  openModal('editParent');
+}
+
+// عبّئ قائمة الطلاب عند فتح صفحة الإضافة
+document.addEventListener('DOMContentLoaded', apFilterStudents);
+</script>
+{% endblock %}
+{% endblock %}

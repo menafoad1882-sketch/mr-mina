@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}نتائج {{ ex.title }}{% endblock %}
+{% block heading %}نتائج الامتحان{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <h3>{{ ex.title }}</h3>
+      <p class="muted">الدرجة الكلية: {{ '%g'|format(ex.total_marks) }} · عدد المؤدين: {{ results|length }}</p>
+    </div>
+    <div class="actions">
+      {% if ex.is_online %}<a href="{{ url_for('exam_edit', eid=ex.id) }}" class="btn ghost">الأسئلة والرابط</a>{% else %}<a href="{{ url_for('paper_grades', eid=ex.id) }}" class="btn ghost">✏️ تعديل الدرجات</a>{% endif %}
+      <a href="{{ url_for('exams') }}" class="btn ghost">← رجوع</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  {% if results %}
+  <div class="toolbar">
+    <button class="btn wa" onclick="openAll()">📤 إرسال كل الدرجات واتساب</button>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <tr><th>#</th><th>الطالب</th><th>الدرجة</th><th>النسبة</th><th>الحالة</th><th>التاريخ</th><th>إجراءات</th></tr>
+    {% for r in results %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td><b>{{ r.name }}</b></td>
+      <td>{{ '%g'|format(r.score) }} / {{ '%g'|format(ex.total_marks) }}</td>
+      <td><span class="badge {{ 'present' if r.pct>=50 else 'absent' }}">{{ r.pct }}%</span></td>
+      <td>
+        {% if r.status == 'pending' %}
+          <span class="badge" style="background:#fef9c3;color:#854d0e">⏳ بانتظار التصحيح</span>
+        {% else %}
+          <span class="badge present">✅ مُعتمدة</span>
+        {% endif %}
+      </td>
+      <td class="muted">{{ r.taken_at }}</td>
+      <td class="actions">
+        {% if ex.is_online %}
+        <a href="{{ url_for('grade_manual', eid=ex.id, sid=r.student_id) }}"
+           class="btn sm {{ 'amber' if r.status=='pending' else 'ghost' }}">
+           {{ '✍️ تصحيح' if r.status=='pending' else '👁️ مراجعة' }}</a>
+        {% endif %}
+        {% if r.status != 'pending' %}
+        <a href="{{ r.link }}" target="_blank" class="btn sm wa wa-link">💬 إرسال</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% set pending_count = results|selectattr('status','equalto','pending')|list|length %}
+  {% if pending_count %}
+  <p class="muted" style="margin-top:10px">⏳ يوجد {{ pending_count }} طالب بانتظار تصحيح الأسئلة المقالية.</p>
+  {% endif %}
+  {% else %}
+  <div class="empty"><div class="big">📊</div>لا توجد نتائج بعد.
+    <br><br>
+    {% if ex.is_online %}<a href="{{ url_for('take_exam', eid=ex.id) }}" target="_blank" class="btn amber">🔗 رابط الامتحان</a>
+    {% else %}<a href="{{ url_for('paper_grades', eid=ex.id) }}" class="btn">✏️ إدخال الدرجات</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% block scripts %}
+<script>
+function openAll(){
+  const links=document.querySelectorAll('.wa-link');
+  if(links.length>5 && !confirm('هيفتح '+links.length+' نافذة واتساب. متأكد؟')) return;
+  links.forEach((a,i)=>setTimeout(()=>window.open(a.href,'_blank'),i*600));
+}
+</script>
+{% endblock %}
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}إضافة طلاب للعام{% endblock %}
+{% block heading %}👥 إضافة طلاب للعام الدراسي الحالي{% endblock %}
+{% block content %}
+<div class="card">
+  <p class="muted">اختر المجموعة ثم حدّد الطلاب الموجودين (من الأعوام السابقة) لتسجيلهم في العام الحالي
+    {% if active_year %}<b>{{ active_year.name }}</b>{% endif %}. لا يتم إنشاء طالب جديد — فقط تسجيل جديد للعام.</p>
+</div>
+
+{% if students %}
+<form method="post" action="{{ url_for('enroll_students_do') }}">
+<div class="card">
+  <div class="form-row">
+    <div class="field"><label>المجموعة</label>
+      <select name="group_id">
+        <option value="">بدون مجموعة</option>
+        {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+      </select></div>
+  </div>
+  <div class="toolbar">
+    <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" onclick="document.querySelectorAll('.se').forEach(c=>c.checked=this.checked)"> تحديد الكل</label>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <tr><th style="width:34px"></th><th>الاسم</th><th>الصف</th><th>رقم ولي الأمر</th></tr>
+    {% for s in students %}
+    <tr>
+      <td><input type="checkbox" class="se" name="student_id" value="{{ s.id }}"></td>
+      <td><b>{{ s.name }}</b></td>
+      <td>{{ s.grade or '-' }}</td>
+      <td class="muted">{{ s.parent_phone }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <button class="btn green" type="submit" style="margin-top:12px">✅ تسجيل المحدّدين في العام الحالي</button>
+</div>
+</form>
+{% else %}
+<div class="card"><div class="empty"><div class="big">✅</div>كل الطلاب مسجّلون بالفعل في العام الحالي.</div></div>
+{% endif %}
+{% endblock %}

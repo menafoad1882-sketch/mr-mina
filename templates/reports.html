@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}التقارير المالية{% endblock %}
+{% block heading %}التقارير المالية{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="toolbar" style="margin-bottom:14px">
+    <button class="tab-btn {{ '' if custom else 'active' }}" onclick="showMode('month',this)">📅 تقرير شهري</button>
+    <button class="tab-btn {{ 'active' if custom else '' }}" onclick="showMode('range',this)">🗓️ فترة مخصصة</button>
+  </div>
+
+  <!-- وضع الشهر -->
+  <form method="get" id="modeMonth" style="display:{{ 'none' if custom else 'flex' }};gap:10px;flex-wrap:wrap;align-items:end">
+    <div class="field" style="margin:0"><label>اختر الشهر</label>
+      <input type="month" name="month" value="{{ month }}"></div>
+    <button class="btn" type="submit">عرض التقرير</button>
+    <a href="{{ url_for('report_excel', month=month) }}" class="btn green">⬇️ تحميل Excel</a>
+    <button type="button" class="btn amber" onclick="openEmail('month')">📧 إرسال بالإيميل</button>
+  </form>
+
+  <!-- وضع الفترة المخصصة -->
+  <form method="get" id="modeRange" style="display:{{ 'flex' if custom else 'none' }};gap:10px;flex-wrap:wrap;align-items:end">
+    <div class="field" style="margin:0"><label>من تاريخ</label>
+      <input type="date" name="start" value="{{ start_date }}"></div>
+    <div class="field" style="margin:0"><label>إلى تاريخ</label>
+      <input type="date" name="end" value="{{ end_date }}"></div>
+    <button class="btn" type="submit">عرض التقرير</button>
+    <a href="{{ url_for('report_excel', start=start_date, end=end_date) }}" class="btn green">⬇️ تحميل Excel</a>
+    <button type="button" class="btn amber" onclick="openEmail('range')">📧 إرسال بالإيميل</button>
+  </form>
+
+  <p class="muted" style="margin-top:12px">📊 الفترة الحالية: <b>{{ label }}</b></p>
+</div>
+
+<div class="grid stats">
+  <div class="stat green"><div class="num">{{ '%g'|format(total) }} ج</div><div class="lbl">💰 إجمالي الدخل في الفترة</div></div>
+  <div class="stat"><div class="num">{{ sessions|length }}</div><div class="lbl">📅 عدد الحصص</div></div>
+  <div class="stat amber"><div class="num">{{ unpaid|length }}</div><div class="lbl">⚠️ متأخرين في الدفع</div></div>
+</div>
+
+<div class="card">
+  <h3>💼 الدخل حسب المجموعة</h3>
+  {% if by_group %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>المجموعة</th><th>الدخل</th></tr>
+    {% for name, amt in by_group.items() %}
+    <tr><td>{{ name }}</td><td><b style="color:var(--green)">{{ '%g'|format(amt) }} ج</b></td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">لا يوجد دخل في هذه الفترة.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3>📅 تفاصيل الحصص</h3>
+  {% if sessions %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>التاريخ</th><th>المجموعة</th><th>العنوان</th><th>الحاضرون</th><th>الدافعون</th><th>الدخل</th></tr>
+    {% for s in sessions %}
+    <tr>
+      <td>{{ s.date }}</td>
+      <td>{{ s.group_name or '-' }}</td>
+      <td>{{ s.title or '-' }}</td>
+      <td>{{ s.attended }}</td>
+      <td>{{ s.paid_cnt }}</td>
+      <td><b style="color:var(--green)">{{ '%g'|format(s.income) }} ج</b></td>
+    </tr>
+    {% endfor %}
+    <tr style="background:#f0fdf4"><td colspan="5"><b>الإجمالي</b></td>
+      <td><b style="color:var(--green)">{{ '%g'|format(total) }} ج</b></td></tr>
+  </table>
+  </div>
+  {% else %}<p class="muted">لا توجد حصص في هذه الفترة.</p>{% endif %}
+</div>
+
+{% if unpaid %}
+<div class="card">
+  <h3>⚠️ طلاب متأخرين في الدفع</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>تاريخ الحصة</th><th>المبلغ المستحق</th></tr>
+    {% for u in unpaid %}
+    <tr><td>{{ u.name }}</td><td>{{ u.date }}</td><td>{{ '%g'|format(u.fee) }} ج</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="modal" id="emailModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3>📧 إرسال التقرير بالإيميل</h3>
+      <button class="close" onclick="closeModal('emailModal')">&times;</button></div>
+    <form method="post" action="{{ url_for('report_email') }}">
+      <input type="hidden" name="month" id="em_month" value="{{ month }}">
+      <input type="hidden" name="start" id="em_start" value="">
+      <input type="hidden" name="end" id="em_end" value="">
+      <div class="field"><label>الإيميل المستلم</label>
+        <input name="email" type="email" placeholder="اترك فاضي لاستخدام الإيميل المحفوظ في الإعدادات"></div>
+      <p class="muted" style="margin-bottom:12px">💡 لازم تضبط إعدادات SMTP من صفحة الإعدادات أولاً (إيميل + باسورد تطبيقات).</p>
+      <button class="btn amber" type="submit">إرسال الآن</button>
+    </form>
+  </div>
+</div>
+
+<style>
+.tab-btn{background:#f1f5f9;border:none;padding:9px 16px;border-radius:10px;font-weight:600;
+  cursor:pointer;font-family:inherit;color:var(--muted);font-size:.9rem}
+.tab-btn.active{background:var(--primary);color:#fff}
+</style>
+{% block scripts %}
+<script>
+function showMode(mode,btn){
+  document.getElementById('modeMonth').style.display = mode==='month'?'flex':'none';
+  document.getElementById('modeRange').style.display = mode==='range'?'flex':'none';
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function openEmail(mode){
+  if(mode==='month'){
+    document.getElementById('em_month').value='{{ month }}';
+    document.getElementById('em_start').value='';
+    document.getElementById('em_end').value='';
+  } else {
+    document.getElementById('em_month').value='';
+    document.getElementById('em_start').value=document.querySelector('#modeRange input[name=start]').value;
+    document.getElementById('em_end').value=document.querySelector('#modeRange input[name=end]').value;
+  }
+  openModal('emailModal');
+}
+</script>
+{% endblock %}
+{% endblock %}

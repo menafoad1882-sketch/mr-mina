@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}إرسال بيانات الدخول{% endblock %}
+{% block heading %}🔑 إرسال بيانات دخول الطلاب لأولياء الأمور{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h3>الخطوة ١: اختر المجموعة</h3>
+  <p class="muted" style="font-size:.88rem">لا تظهر كل المجموعات معًا — اختر مجموعة لعرض طلابها فقط.</p>
+  <form method="get" action="{{ url_for('send_all_logins') }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+    <div class="field" style="margin:0">
+      <label>المجموعة</label>
+      <select name="group">
+        <option value="">— اختر مجموعة —</option>
+        {% for g in groups %}
+        <option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn" type="submit" name="scope" value="group">👥 عرض طلاب المجموعة</button>
+    <button class="btn ghost" type="submit" name="scope" value="all">🗂️ عرض كل الطلاب</button>
+  </form>
+</div>
+
+{% if students is not none %}
+  {% if students %}
+  <form method="post" action="{{ url_for('send_logins_do') }}">
+    <input type="hidden" name="group" value="{{ sel_group }}">
+    <div class="card">
+      <div class="toolbar">
+        <h3 style="margin:0">الخطوة ٢: اختر الطلاب ({{ students|length }})</h3>
+        <div class="spacer"></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:.9rem">
+          <input type="checkbox" id="selAll" onclick="toggleAll(this)"> تحديد الكل
+        </label>
+      </div>
+      <div class="table-wrap">
+      <table>
+        <tr><th style="width:34px"></th><th>الاسم</th><th>المجموعة</th><th>الكود</th><th>رقم ولي الأمر</th></tr>
+        {% for s in students %}
+        <tr>
+          <td><input type="checkbox" class="selStu" name="student_id" value="{{ s.id }}" onchange="updateSel()"></td>
+          <td><b>{{ s.name }}</b></td>
+          <td>{{ s.group_name or '-' }}</td>
+          <td><span class="pill">{{ s.code }}</span></td>
+          <td class="muted">{{ s.parent_phone }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn green" type="submit">💬 إرسال بيانات الدخول للمحدّدين (<span id="selCount">0</span>)</button>
+      </div>
+    </div>
+  </form>
+  {% else %}
+  <div class="card"><div class="empty"><div class="big">👥</div>لا يوجد طلاب في هذا الاختيار.</div></div>
+  {% endif %}
+{% endif %}
+
+{% block scripts %}
+<script>
+function updateSel(){
+  var n=document.querySelectorAll('.selStu:checked').length;
+  document.getElementById('selCount').textContent=n;
+}
+function toggleAll(cb){
+  document.querySelectorAll('.selStu').forEach(function(c){c.checked=cb.checked;});
+  updateSel();
+}
+</script>
+{% endblock %}
+{% endblock %}

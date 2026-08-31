@@ -1,0 +1,15 @@
+<script>
+// تبديل الوضع النهاري/الليلي للصفحات المستقلة (دخول/طالب/ولي أمر)
+function _tti(){var b=document.getElementById('tt');if(!b)return;
+  var d=document.documentElement.getAttribute('data-theme')==='dark';b.textContent=d?'☀️':'🌙';}
+function tglTheme(){
+  var cur=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';
+  var next=cur==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',next);
+  try{localStorage.setItem('ui_theme',next);}catch(e){}
+  _tti();
+  fetch('{{ url_for("set_theme") }}',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({theme:next})}).catch(function(){});
+}
+_tti();
+</script>

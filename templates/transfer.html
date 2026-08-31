@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}ترحيل طالب{% endblock %}
+{% block heading %}🔄 ترحيل طالب بين المجموعات{% endblock %}
+{% block content %}
+<div class="card">
+  <h3>{{ st.name }}</h3>
+  <p class="muted">العام الدراسي: <b>{{ active_year.name if active_year }}</b> ·
+     المجموعة الحالية: <b>{{ cur_group.name if cur_group else 'بدون مجموعة' }}</b></p>
+  <form method="post" action="{{ url_for('transfer_student', sid=st.id) }}" style="margin-top:10px">
+    <div class="form-row">
+      <div class="field"><label>المجموعة الجديدة *</label>
+        <select name="to_group_id" required>
+          <option value="">اختر المجموعة...</option>
+          {% for g in groups %}<option value="{{ g.id }}" {{ 'disabled' if cur_group and g.id==enr.group_id }}>{{ g.name }}{{ ' (الحالية)' if cur_group and g.id==enr.group_id }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>تاريخ الترحيل</label><input name="date" type="date"></div>
+    </div>
+    <div class="field"><label>ملاحظة (اختياري)</label><input name="note" placeholder="سبب الترحيل"></div>
+    <button class="btn green" type="submit">🔄 تأكيد الترحيل</button>
+    <a href="{{ url_for('student_profile', sid=st.id) }}" class="btn ghost">إلغاء</a>
+  </form>
+  <p class="muted" style="font-size:.85rem;margin-top:10px">ℹ️ الحضور والدفعات السابقة تبقى مرتبطة بالمجموعة القديمة (سجل تاريخي). التغيير يؤثر على المجموعة الحالية فقط.</p>
+</div>
+
+{% if transfers %}
+<div class="card">
+  <h3>📜 سجل الترحيل</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>التاريخ</th><th>من</th><th>إلى</th><th>ملاحظة</th></tr>
+    {% for t in transfers %}
+    <tr><td>{{ t.date }}</td><td>{{ t.from_name or '—' }}</td><td>{{ t.to_name or '—' }}</td><td class="muted">{{ t.note or '' }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

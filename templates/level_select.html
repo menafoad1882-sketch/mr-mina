@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}مستوى الطلاب{% endblock %}
+{% block heading %}إرسال مستوى الطلاب لأولياء الأمور{% endblock %}
+{% block content %}
+<div class="card" style="background:#eff6ff">
+  <p>اختر <b>مستوى كل طالب</b> من القائمة ثم اضغط «توليد الرسائل». المستوى المقترح محسوب تلقائيًا من الدرجات، وتقدر تغيّره كما تحب قبل الإرسال.</p>
+  <form method="get" style="display:flex;gap:8px;margin-top:10px;max-width:400px">
+    <select name="group" onchange="this.form.submit()">
+      <option value="">كل الطلاب</option>
+      {% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>{% endfor %}
+    </select>
+    <button class="btn ghost" type="submit">عرض</button>
+  </form>
+</div>
+
+<form method="post" action="{{ url_for('whatsapp_level_send') }}">
+<div class="card">
+  <div class="toolbar">
+    <label style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="selectAll" checked onchange="toggleAll(this)" style="width:20px;height:20px">
+      تحديد الكل
+    </label>
+    <div class="spacer"></div>
+    <button class="btn wa" type="submit">💬 توليد الرسائل</button>
+  </div>
+  {% if students %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>إرسال</th><th>الطالب</th><th>المجموعة</th><th>متوسط الدرجات</th><th>الحضور</th><th>اختر المستوى</th></tr>
+    {% for s in students %}
+    <tr>
+      <td><input type="checkbox" name="student_id" value="{{ s.id }}" checked class="stud-chk" style="width:20px;height:20px"></td>
+      <td><b>{{ s.name }}</b></td>
+      <td>{{ s.group_name }}</td>
+      <td>{% if s.avg is not none %}<span class="pill">{{ s.avg }}%</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if s.att is not none %}{{ s.att }}%{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>
+        <select name="level_{{ s.id }}" style="min-width:150px">
+          {% for lv in levels %}
+          <option value="{{ lv }}" {{ 'selected' if lv==s.suggested }}>{{ lv }}</option>
+          {% endfor %}
+        </select>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">👥</div>لا يوجد طلاب.</div>
+  {% endif %}
+</div>
+</form>
+
+{% block scripts %}
+<script>
+function toggleAll(cb){
+  document.querySelectorAll('.stud-chk').forEach(c=>c.checked=cb.checked);
+}
+</script>
+{% endblock %}
+{% endblock %}

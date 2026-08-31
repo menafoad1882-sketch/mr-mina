@@ -1,0 +1,582 @@
+{% extends "base.html" %}
+{% block title %}أسئلة {{ ex.title }}{% endblock %}
+{% block heading %}أسئلة الامتحان{% endblock %}
+{% block content %}
+{% set _st = ex.status or 'draft' %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <h3>{{ ex.title }}
+        <span class="pill" id="statusBadge" style="background:{{ '#dcfce7' if _st=='published' else ('#fee2e2' if _st=='closed' else '#fef9c3') }};color:{{ '#15803d' if _st=='published' else ('#b91c1c' if _st=='closed' else '#854d0e') }}">
+          {{ {'draft':'مسودة','published':'منشور','closed':'موقوف'}.get(_st, _st) }}</span></h3>
+      <p class="muted">الدرجة الكلية: {{ '%g'|format(ex.total_marks) }} · المدة: {{ ex.duration }} دقيقة</p>
+    </div>
+    <div class="actions">
+      {% if _st != 'published' %}
+      <button type="button" class="btn green" onclick="setStatus('published')">🚀 نشر الامتحان</button>
+      {% else %}
+      <button type="button" class="btn amber" onclick="setStatus('draft')">↩ إرجاع لمسودة</button>
+      <a href="{{ url_for('take_exam', eid=ex.id) }}" target="_blank" class="btn">🔗 فتح الامتحان</a>
+      {% endif %}
+      <button type="button" class="btn ghost" onclick="setStatus('draft')" {% if _st=='draft' %}style="display:none"{% endif %}>💾 حفظ كمسودة</button>
+      <a href="{{ url_for('exam_creds', eid=ex.id) }}" class="btn wa">🔑 بيانات الدخول</a>
+      <a href="{{ url_for('exam_word_setup', eid=ex.id) }}" class="btn">⬇️ امتحان ورقي Word</a>
+      <a href="{{ url_for('exams') }}" class="btn ghost">← رجوع</a>
+    </div>
+  </div>
+  <p class="muted" style="font-size:.83rem;margin-top:8px">
+    {% if _st == 'draft' %}⚠️ هذا الامتحان <b>مسودة</b> — غير متاح للطلاب. راجع الأسئلة والإعدادات ثم اضغط «نشر الامتحان».
+    {% elif _st == 'published' %}✅ الامتحان <b>منشور</b> ومتاح للطلاب عبر الرابط.
+    {% else %}⛔ الامتحان <b>موقوف</b>.{% endif %}
+  </p>
+  {% set purl = public_exam_url(ex.id) %}
+  <div style="margin-top:14px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px">
+    <p style="font-weight:600;margin-bottom:8px">🌐 رابط الامتحان العام (انسخه وابعته للطلاب — يشتغل من أي جهاز):</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="examUrl" value="{{ purl }}" readonly style="flex:1;min-width:220px;font-family:monospace;direction:ltr;text-align:left">
+      <button class="btn sm" type="button" onclick="copyUrl()">📋 نسخ الرابط</button>
+    </div>
+    {% if 'localhost' in purl or '127.0.0.1' in purl %}
+    <p class="muted" style="margin-top:8px">⚠️ الرابط حاليًا محلي. بعد رفع الموقع على استضافة (Vercel/Render) سيتحوّل تلقائيًا لرابط عام، أو اضبط رابط الموقع من الإعدادات.</p>
+    {% endif %}
+  </div>
+</div>
+{% block scripts %}
+<script>
+function copyUrl(){
+  const el=document.getElementById('examUrl');
+  el.select(); el.setSelectionRange(0,99999);
+  navigator.clipboard.writeText(el.value).then(()=>{
+    event.target.textContent='✅ تم النسخ';
+    setTimeout(()=>event.target.textContent='📋 نسخ الرابط',2000);
+  });
+}
+// تغيير حالة النشر (مسودة/نشر) دون مغادرة الصفحة
+function setStatus(st){
+  if(st==='published' && !confirm('نشر الامتحان وإتاحته للطلاب؟')) return;
+  fetch('/exams/{{ ex.id }}/set-status',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status:st})}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){ location.reload(); } else { alert(d.error||'تعذّر التغيير'); }
+  }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+function switchType(){
+  const t=document.getElementById('qtype').value;
+  const mcq=document.getElementById('mcqBlock');
+  const tf=document.getElementById('tfBlock');
+  const ans=document.getElementById('ansBlock');
+  const optA=document.getElementById('opt_a');
+  const optB=document.getElementById('opt_b');
+  const cMcq=document.getElementById('correct_mcq');
+  const cTf=document.getElementById('correct_tf');
+  // إخفاء الكل ثم إظهار المطلوب + تفعيل/تعطيل name عشان يتبعت الصح بس
+  mcq.style.display='none'; tf.style.display='none'; ans.style.display='none';
+  document.getElementById('mapBlock').style.display='none';
+  cMcq.name=''; cTf.name=''; optA.required=false; optB.required=false;
+  if(t==='mcq'){
+    mcq.style.display='block'; cMcq.name='correct';
+    optA.required=true; optB.required=true;
+  } else if(t==='truefalse'){
+    tf.style.display='block'; cTf.name='correct';
+  } else if(t==='complete'){
+    ans.style.display='block';
+    document.getElementById('ansLabel').textContent='الإجابة الصحيحة (للتصحيح التلقائي) *';
+    document.getElementById('ansHint').textContent='هيتم مقارنة إجابة الطالب بها تلقائيًا (يتجاهل التشكيل والفروق البسيطة).';
+    document.getElementById('answer_text').required=true;
+  } else if(t==='map' || t==='map_complete'){
+    document.getElementById('mapBlock').style.display='block';
+  } else {
+    ans.style.display='block';
+    document.getElementById('ansLabel').textContent='الإجابة النموذجية (اختياري — للمستر أثناء التصحيح)';
+    document.getElementById('ansHint').textContent='سؤال مقالي يصححه المستر يدويًا بعد أداء الطالب.';
+    document.getElementById('answer_text').required=false;
+  }
+}
+function addMapRow(){
+  var box=document.getElementById('mapRows');
+  var div=document.createElement('div');
+  div.style.cssText='display:flex;gap:8px;margin-top:6px;flex-wrap:wrap';
+  div.innerHTML='<input name="map_num" placeholder="رقم" style="width:70px">'+
+    '<input name="map_answer" placeholder="المدلول الصحيح" style="flex:1;min-width:160px">'+
+    '<input name="map_marks" type="number" step="any" value="1" placeholder="درجة" style="width:80px">'+
+    '<button type="button" class="btn sm red" onclick="this.parentNode.remove()">حذف</button>';
+  box.appendChild(div);
+}
+switchType();
+// أقسام إعدادات الامتحان القابلة للطي (أكورديون)
+function toggleAcc(btn){
+  var acc=btn.closest('.acc');
+  acc.classList.toggle('open');
+}
+</script>
+<style>
+.exam-settings .acc{border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden;background:#fff}
+.exam-settings .acc-head{width:100%;display:flex;justify-content:space-between;align-items:center;
+  background:#f8fafc;border:none;padding:14px 16px;font-family:inherit;font-size:1rem;font-weight:700;
+  color:#0f172a;cursor:pointer;text-align:right}
+.exam-settings .acc-head:hover{background:#f1f5f9}
+.exam-settings .acc .chev{transition:transform .2s;color:var(--muted)}
+.exam-settings .acc.open .chev{transform:rotate(180deg)}
+.exam-settings .acc-body{display:none;padding:16px;border-top:1px solid var(--border)}
+.exam-settings .acc.open .acc-body{display:block}
+.exam-settings .acc-desc{color:var(--muted);font-size:.85rem;margin:0 0 12px}
+.exam-settings .switch{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);
+  border-radius:10px;margin-bottom:8px;cursor:pointer;font-size:.92rem}
+.exam-settings .switch:hover{background:#f8fafc}
+.exam-settings .switch input{width:20px;height:20px;flex-shrink:0}
+.exam-settings .switch.disabled-look{opacity:.7;cursor:default;background:#f8fafc}
+</style>
+{% endblock %}
+
+<div class="card" style="background:#f0f9ff;border:1px solid #bae6fd">
+  <h3>📥 استيراد الأسئلة من Word</h3>
+  <p class="muted" style="font-size:.86rem;margin-bottom:10px">
+    ارفع ملف <b>.docx</b> فيه الأسئلة، والنظام يتعرّف على أنواعها تلقائيًا (بدون ذكاء اصطناعي)
+    ويعرضها للمراجعة قبل الإضافة. <a href="{{ url_for('word_format_help') }}" target="_blank">📄 نموذج التنسيق المدعوم</a>
+  </p>
+  <form method="post" action="{{ url_for('exam_import_word', eid=ex.id) }}" enctype="multipart/form-data"
+        style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <input type="file" name="docx" accept=".docx" required>
+    <button class="btn" type="submit">📥 رفع وتحليل الأسئلة</button>
+    <a href="{{ url_for('question_bank') }}?exam_id={{ ex.id }}" class="btn ghost">🏦 إضافة من بنك الأسئلة</a>
+  </form>
+</div>
+
+<!-- ═══════════ إعدادات الامتحان (أقسام قابلة للطي) ═══════════ -->
+{% set _pub_map = {'draft':'مسودة','published':'منشور','closed':'موقوف'} %}
+{% set _cur_status = ex.status or 'published' %}
+<div class="card exam-settings">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <h3 style="margin:0">⚙️ إعدادات الامتحان</h3>
+    <span class="pill" style="background:{{ '#dcfce7' if _cur_status=='published' else ('#fee2e2' if _cur_status=='closed' else '#fef9c3') }};
+      color:{{ '#15803d' if _cur_status=='published' else ('#b91c1c' if _cur_status=='closed' else '#854d0e') }}">
+      الحالة: {{ _pub_map.get(_cur_status, _cur_status) }}</span>
+  </div>
+  <p class="muted" style="font-size:.85rem;margin:6px 0 14px">كل الإعدادات مقسّمة لأقسام. اضغط على عنوان أي قسم لفتحه أو طيّه. القيم تُحفظ كلها معًا بزر الحفظ بالأسفل.</p>
+  <form method="post" action="{{ url_for('exam_settings', eid=ex.id) }}">
+
+  {# ── A. بيانات الامتحان ── #}
+  <div class="acc open">
+    <button type="button" class="acc-head" onclick="toggleAcc(this)">
+      <span>⚙️ بيانات الامتحان</span><span class="chev">▾</span></button>
+    <div class="acc-body">
+      <p class="acc-desc">المعلومات الأساسية للامتحان وموعده ومدته.</p>
+      <div class="form-row">
+        <div class="field"><label>اسم الامتحان</label>
+          <input name="title" value="{{ ex.title }}"></div>
+        <div class="field"><label>المادة</label>
+          <input name="subject" value="{{ ex.subject or '' }}" placeholder="مثال: دراسات اجتماعية"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الصف</label>
+          <input name="grade" value="{{ ex.grade or '' }}" placeholder="مثال: الصف الثالث الإعدادي"></div>
+        <div class="field"><label>المجموعة</label>
+          <select name="group_id">
+            <option value="">— بدون مجموعة —</option>
+            {% for g in groups %}
+            <option value="{{ g.id }}" {{ 'selected' if ex.group_id==g.id }}>{{ g.name }}</option>
+            {% endfor %}
+          </select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>العام الدراسي</label>
+          <input value="{{ year_row.name if year_row else '—' }}" disabled></div>
+        <div class="field"><label>الترم</label>
+          <select name="term_id">
+            <option value="">— كل الترمات —</option>
+            {% for tm in terms %}
+            <option value="{{ tm.id }}" {{ 'selected' if ex.term_id==tm.id }}>{{ tm.name }}</option>
+            {% endfor %}
+          </select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>مدة الامتحان (دقيقة)</label>
+          <input name="duration" type="number" min="1" value="{{ ex.duration or 30 }}"></div>
+        <div class="field"><label>تاريخ الامتحان</label>
+          <input name="exam_date" type="date" value="{{ ex.exam_date or '' }}"></div>
+      </div>
+    </div>
+  </div>
+
+  {# ── B. إعدادات الأسئلة ── #}
+  <div class="acc open">
+    <button type="button" class="acc-head" onclick="toggleAcc(this)">
+      <span>📝 إعدادات الأسئلة</span><span class="chev">▾</span></button>
+    <div class="acc-body">
+      <p class="acc-desc">التحكم في ترتيب وعرض الأسئلة والدرجات.</p>
+      <label class="switch">
+        <input type="checkbox" name="shuffle_questions" value="1" {{ 'checked' if ex.shuffle_questions }}>
+        <span>ترتيب الأسئلة عشوائيًا لكل طالب</span></label>
+      <label class="switch">
+        <input type="checkbox" name="shuffle_choices" value="1" {{ 'checked' if ex.shuffle_choices }}>
+        <span>ترتيب الاختيارات عشوائيًا (في أسئلة الاختيار من متعدد)</span></label>
+      <label class="switch">
+        <input type="checkbox" name="show_question_number" value="1" {{ 'checked' if ex.show_question_number or ex.show_question_number is none }}>
+        <span>إظهار رقم السؤال للطالب</span></label>
+      <div class="form-row" style="margin-top:8px">
+        <div class="field"><label>عدد الأسئلة المعروضة لكل طالب</label>
+          <input name="num_questions" type="number" min="0" value="{{ ex.num_questions or 0 }}">
+          <p class="muted" style="font-size:.78rem;margin-top:4px">0 = عرض كل الأسئلة. أي رقم أكبر = اختيار هذا العدد عشوائيًا من بنك أسئلة الامتحان لكل طالب.</p></div>
+        <div class="field"><label>إجمالي درجات الامتحان</label>
+          <input value="{{ '%g'|format(ex.total_marks or 0) }} درجة" disabled>
+          <p class="muted" style="font-size:.78rem;margin-top:4px">تُحسب تلقائيًا من مجموع درجات الأسئلة المضافة بالأسفل.</p></div>
+      </div>
+    </div>
+  </div>
+
+  {# ── C. محاولات الامتحان ── #}
+  <div class="acc open">
+    <button type="button" class="acc-head" onclick="toggleAcc(this)">
+      <span>🔄 محاولات الامتحان</span><span class="chev">▾</span></button>
+    <div class="acc-body">
+      <p class="acc-desc">إعادة الامتحان وعدد المحاولات والنتيجة المعتمدة.</p>
+      <label class="switch">
+        <input type="checkbox" name="allow_retake" value="1" {{ 'checked' if ex.allow_retake }}>
+        <span>السماح بإعادة الامتحان</span></label>
+      <div class="form-row" style="margin-top:8px">
+        <div class="field"><label>عدد المحاولات المسموح بها</label>
+          <select name="max_attempts">
+            {% set ma = ex.max_attempts if ex.max_attempts is not none else 1 %}
+            <option value="1" {{ 'selected' if ma==1 }}>1</option>
+            <option value="2" {{ 'selected' if ma==2 }}>2</option>
+            <option value="3" {{ 'selected' if ma==3 }}>3</option>
+            <option value="0" {{ 'selected' if ma==0 }}>غير محدود</option>
+          </select></div>
+        <div class="field"><label>النتيجة المعتمدة</label>
+          <select name="final_policy">
+            <option value="highest" {{ 'selected' if ex.final_policy=='highest' or not ex.final_policy }}>أعلى درجة</option>
+            <option value="latest" {{ 'selected' if ex.final_policy=='latest' }}>آخر محاولة</option>
+            <option value="manual" {{ 'selected' if ex.final_policy=='manual' }}>اختيار المدرس</option>
+          </select></div>
+      </div>
+    </div>
+  </div>
+
+  {# ── D. إعدادات التصحيح ── #}
+  <div class="acc">
+    <button type="button" class="acc-head" onclick="toggleAcc(this)">
+      <span>✅ التصحيح</span><span class="chev">▾</span></button>
+    <div class="acc-body">
+      <p class="acc-desc">طريقة تصحيح الأسئلة وما يظهر للطالب بعد التسليم.</p>
+      <label class="switch">
+        <input type="checkbox" name="auto_grade" value="1" {{ 'checked' if ex.auto_grade or ex.auto_grade is none }}>
+        <span>التصحيح التلقائي للأسئلة الموضوعية (اختيار/صح وخطأ/أكمل/خريطة)</span></label>
+      <label class="switch disabled-look">
+        <input type="checkbox" checked disabled>
+        <span>الأسئلة المقالية تحتاج تصحيح المدرس <span class="muted">(تلقائي دائمًا)</span></span></label>
+      <label class="switch">
+        <input type="checkbox" name="show_result_to_student" value="1" {{ 'checked' if ex.show_result_to_student or ex.show_result_to_student is none }}>
+        <span>إظهار النتيجة للطالب بعد التسليم</span></label>
+      <label class="switch">
+        <input type="checkbox" name="show_answers_to_student" value="1" {{ 'checked' if ex.show_answers_to_student }}>
+        <span>إظهار الإجابات الصحيحة للطالب بعد التسليم</span></label>
+    </div>
+  </div>
+
+  {# ── E. إعدادات الطالب ── #}
+  <div class="acc">
+    <button type="button" class="acc-head" onclick="toggleAcc(this)">
+      <span>👨‍🎓 إعدادات الطالب</span><span class="chev">▾</span></button>
+    <div class="acc-body">
+      <p class="acc-desc">التحكم في تجربة الطالب أثناء أداء الامتحان.</p>
+      <label class="switch">
+        <input type="checkbox" name="one_question_per_page" value="1" {{ 'checked' if ex.one_question_per_page }}>
+        <span>عرض سؤال واحد في كل صفحة (بدل كل الأسئلة معًا)</span></label>
+      <label class="switch">
+        <input type="checkbox" name="prevent_back" value="1" {{ 'checked' if ex.prevent_back }}>
+        <span>منع الطالب من العودة للسؤال السابق <span class="muted">(يعمل مع «سؤال واحد لكل صفحة»)</span></span></label>
+      <p class="muted" style="font-size:.8rem;margin-top:6px">ℹ️ عدد المحاولات المسموح بها للطالب يُضبط من قسم «محاولات الامتحان».</p>
+    </div>
+  </div>
+
+  {# ── F. إعدادات النشر ── #}
+  <div class="acc">
+    <button type="button" class="acc-head" onclick="toggleAcc(this)">
+      <span>🚀 النشر</span><span class="chev">▾</span></button>
+    <div class="acc-body">
+      <p class="acc-desc">حالة الامتحان ومواعيد إتاحته للطلاب.</p>
+      <div class="field"><label>حالة الامتحان</label>
+        <select name="status">
+          <option value="draft" {{ 'selected' if _cur_status=='draft' }}>مسودة (غير متاح للطلاب)</option>
+          <option value="published" {{ 'selected' if _cur_status=='published' }}>منشور (متاح للطلاب)</option>
+          <option value="closed" {{ 'selected' if _cur_status=='closed' }}>موقوف (تم إيقافه)</option>
+        </select></div>
+      <div class="form-row">
+        <div class="field"><label>تاريخ ووقت بدء الامتحان (اختياري)</label>
+          <input name="open_at" type="datetime-local" value="{{ ex.open_at or '' }}"></div>
+        <div class="field"><label>تاريخ ووقت انتهاء الامتحان (اختياري)</label>
+          <input name="close_at" type="datetime-local" value="{{ ex.close_at or '' }}"></div>
+      </div>
+      <p class="muted" style="font-size:.8rem;margin-top:4px">لو حدّدت مواعيد، لن يستطيع الطالب الدخول إلا داخل الفترة المحدّدة حتى لو كان الامتحان «منشورًا».</p>
+    </div>
+  </div>
+
+  {# ── G. إعدادات النتيجة ── #}
+  <div class="acc">
+    <button type="button" class="acc-head" onclick="toggleAcc(this)">
+      <span>📊 النتيجة</span><span class="chev">▾</span></button>
+    <div class="acc-body">
+      <p class="acc-desc">ما يظهر في صفحة النتيجة للطالب وإرسالها لولي الأمر.</p>
+      <label class="switch">
+        <input type="checkbox" name="show_score" value="1" {{ 'checked' if ex.show_score or ex.show_score is none }}>
+        <span>إظهار الدرجة (مثال: 8 / 10)</span></label>
+      <label class="switch">
+        <input type="checkbox" name="show_percentage" value="1" {{ 'checked' if ex.show_percentage or ex.show_percentage is none }}>
+        <span>إظهار النسبة المئوية</span></label>
+      <label class="switch">
+        <input type="checkbox" name="show_grade_label" value="1" {{ 'checked' if ex.show_grade_label or ex.show_grade_label is none }}>
+        <span>إظهار التقدير (ممتاز / جيد جدًا ...)</span></label>
+      <label class="switch">
+        <input type="checkbox" name="send_result_to_parent" value="1" {{ 'checked' if ex.send_result_to_parent }}>
+        <span>إرسال النتيجة تلقائيًا إلى ولي الأمر (يتطلب تفعيل واتساب API)</span></label>
+    </div>
+  </div>
+
+    <button class="btn green" type="submit" style="margin-top:14px">💾 حفظ كل الإعدادات</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>➕ إضافة سؤال</h3>
+  <form method="post" action="{{ url_for('add_question', eid=ex.id) }}" enctype="multipart/form-data">
+    <div class="form-row">
+      <div class="field"><label>نوع السؤال *</label>
+        <select name="qtype" id="qtype" onchange="switchType()">
+          <option value="mcq">اختيار من متعدد (تصحيح تلقائي)</option>
+          <option value="truefalse">صح / خطأ (تصحيح تلقائي)</option>
+          <option value="complete">أكمل (تصحيح تلقائي)</option>
+          <option value="map">اكتب مدلول الأرقام على الخريطة (تصحيح تلقائي)</option>
+          <option value="map_complete">أكمل مدلول الأرقام على الخريطة (تصحيح تلقائي)</option>
+          <option value="explain">بم تفسّر (تصحيح المدرس)</option>
+          <option value="results">ما النتائج المترتبة على (تصحيح المدرس)</option>
+          <option value="meaning">ما المقصود بـ (تصحيح المدرس)</option>
+          <option value="compare">قارن (تصحيح المدرس)</option>
+          <option value="prove">دلل (تصحيح المدرس)</option>
+        </select></div>
+      <div class="field"><label>الدرجة</label><input name="marks" type="number" step="any" value="1"></div>
+    </div>
+    <div class="field"><label>نص السؤال *</label><textarea name="text" rows="2" required></textarea></div>
+
+    <!-- خيارات الاختيار من متعدد -->
+    <div id="mcqBlock">
+      <div class="form-row">
+        <div class="field"><label>الاختيار (أ)</label><input name="option_a" id="opt_a"></div>
+        <div class="field"><label>الاختيار (ب)</label><input name="option_b" id="opt_b"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>الاختيار (ج)</label><input name="option_c"></div>
+        <div class="field"><label>الاختيار (د)</label><input name="option_d"></div>
+      </div>
+      <div class="field"><label>الإجابة الصحيحة</label>
+        <select name="correct" id="correct_mcq">
+          <option value="a">أ</option><option value="b">ب</option>
+          <option value="c">ج</option><option value="d">د</option>
+        </select></div>
+    </div>
+
+    <!-- صح / خطأ -->
+    <div id="tfBlock" style="display:none">
+      <div class="field"><label>الإجابة الصحيحة</label>
+        <select name="correct_tf" id="correct_tf">
+          <option value="a">صح ✅</option><option value="b">خطأ ❌</option>
+        </select></div>
+    </div>
+
+    <!-- سؤال خريطة: صورة + أرقام وإجاباتها -->
+    <div id="mapBlock" style="display:none">
+      <div class="field"><label>صورة الخريطة (PNG/JPG)</label>
+        <input type="file" name="map_image" accept="image/*"></div>
+      <label style="font-weight:600;display:block;margin:6px 0">مدلول الأرقام (رقم / الإجابة الصحيحة / درجة):</label>
+      <div id="mapRows">
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+          <input name="map_num" placeholder="رقم" style="width:70px" value="1">
+          <input name="map_answer" placeholder="المدلول الصحيح" style="flex:1;min-width:160px">
+          <input name="map_marks" type="number" step="any" value="1" style="width:80px">
+        </div>
+      </div>
+      <button type="button" class="btn sm ghost" style="margin-top:8px" onclick="addMapRow()">➕ إضافة رقم</button>
+      <p class="muted" style="font-size:.8rem;margin-top:4px">التصحيح تلقائي: درجة لكل رقم إجابته صحيحة.</p>
+    </div>
+
+    <!-- أكمل / مقالي: الإجابة النموذجية -->
+    <div id="ansBlock" style="display:none">
+      <div class="field"><label id="ansLabel">الإجابة النموذجية</label>
+        <textarea name="answer_text" id="answer_text" rows="2" placeholder="اكتب الإجابة النموذجية"></textarea>
+        <p class="muted" id="ansHint" style="font-size:.8rem;margin-top:4px"></p>
+      </div>
+    </div>
+
+    <button class="btn green" type="submit">إضافة السؤال</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>الأسئلة الحالية (<span id="qCount">{{ questions|length }}</span>)</h3>
+  {% set qtnames = {'mcq':'اختيار من متعدد','complete':'أكمل','truefalse':'صح/خطأ','explain':'بم تفسّر','results':'ما النتائج المترتبة','meaning':'ما المقصود','compare':'قارن','prove':'دلل','map':'خريطة','map_complete':'أكمل الخريطة','matching':'توصيل','ordering':'ترتيب','cause_effect':'سبب ونتيجة','analysis':'تحليل واستنتاج','short':'سؤال قصير'} %}
+  <div id="qList" {% if not questions %}style="display:none"{% endif %}>
+    {% for q in questions %}
+    {% set qt = q.qtype or 'mcq' %}
+    <div class="qcard" id="qcard-{{ q.id }}" data-qid="{{ q.id }}"
+         style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+      <!-- وضع العرض -->
+      <div class="qview">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <b><span class="qidx">{{ loop.index }}</span>. <span class="qtext">{{ q.text }}</span></b>
+          <span style="display:flex;gap:6px;flex-shrink:0">
+            <button type="button" class="btn sm ghost" onclick="editQ({{ q.id }})">✏️ تعديل</button>
+            <button type="button" class="btn sm red" onclick="delQ({{ q.id }})">🗑️ حذف</button>
+          </span>
+        </div>
+        <div class="qbody" style="margin-top:8px;font-size:.9rem">
+          {% if qt in ['mcq','truefalse'] %}
+          <ul style="list-style:none">
+            {% for opt,letter in [(q.option_a,'a'),(q.option_b,'b'),(q.option_c,'c'),(q.option_d,'d')] %}
+              {% if opt %}
+              <li style="padding:3px 0;{{ 'color:var(--green);font-weight:700' if q.correct==letter }}">
+                {{ {'a':'أ','b':'ب','c':'ج','d':'د'}[letter] }}) {{ opt }} {{ '✅' if q.correct==letter }}</li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+          {% elif q.answer_text %}
+          <p class="muted">{% if qt == 'complete' %}الإجابة الصحيحة: {% else %}الإجابة النموذجية: {% endif %}{{ q.answer_text }}</p>
+          {% endif %}
+        </div>
+        <span class="pill qtype-lbl">{{ qtnames.get(qt, qt) }}</span>
+        <span class="pill qmarks-lbl">{{ '%g'|format(q.marks) }} درجة</span>
+      </div>
+      <!-- محرّر السؤال (JS يملؤه عند الضغط على تعديل) -->
+      <div class="qedit" style="display:none"></div>
+    </div>
+    {% endfor %}
+  </div>
+  <div id="qEmpty" class="empty" {% if questions %}style="display:none"{% endif %}><div class="big">❓</div>لا توجد أسئلة. أضف أول سؤال.</div>
+</div>
+
+<script>
+var QTYPE_LABELS = {{ qtnames|tojson }};
+var LETTERS_AR = {'a':'أ','b':'ب','c':'ج','d':'د'};
+var EID = {{ ex.id }};
+// قائمة الأنواع لقائمة تغيير النوع في المحرّر
+var ALL_TYPES = {{ qtnames|tojson }};
+
+function _esc(s){var d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML;}
+
+// حذف سؤال عبر AJAX دون إعادة تحميل الصفحة (يحافظ على موضع التمرير)
+function delQ(qid){
+  if(!confirm('حذف هذا السؤال؟')) return;
+  var y=window.scrollY;   // احفظ الموضع الحالي
+  fetch('/exams/'+EID+'/question/'+qid+'/delete',{method:'POST',headers:{'X-Requested-With':'fetch'}})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){
+        var card=document.getElementById('qcard-'+qid);
+        if(card) card.remove();
+        renumber();
+        window.scrollTo(0,y);  // ابقَ في نفس المكان تقريبًا
+      } else { alert(d.error||'تعذّر الحذف'); }
+    }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+function renumber(){
+  var cards=document.querySelectorAll('#qList .qcard');
+  cards.forEach(function(c,i){ var idx=c.querySelector('.qidx'); if(idx) idx.textContent=i+1; });
+  document.getElementById('qCount').textContent=cards.length;
+  if(cards.length===0){ document.getElementById('qList').style.display='none'; document.getElementById('qEmpty').style.display='block'; }
+}
+
+// فتح محرّر سؤال داخل البطاقة
+function editQ(qid){
+  var card=document.getElementById('qcard-'+qid);
+  var view=card.querySelector('.qview'); var ed=card.querySelector('.qedit');
+  if(ed.style.display==='block'){ ed.style.display='none'; view.style.display='block'; return; }
+  // اجمع البيانات الحالية من العرض
+  var qtype=(card.getAttribute('data-qtype'))||'{{ '' }}';
+  fetch('/exams/'+EID+'/question/'+qid+'/data').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok){ alert('تعذّر جلب السؤال'); return; }
+    ed.innerHTML=buildEditor(d.question);
+    ed.style.display='block'; view.style.display='none';
+    onTypeChange(qid);
+  }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+
+function typeOptionsHtml(sel){
+  var h='';
+  for(var k in ALL_TYPES){ h+='<option value="'+k+'"'+(k===sel?' selected':'')+'>'+ALL_TYPES[k]+'</option>'; }
+  return h;
+}
+function buildEditor(q){
+  var t=q.qtype||'mcq';
+  var h='<div class="field"><label>نص السؤال</label><textarea id="e_text_'+q.id+'" rows="2">'+_esc(q.text)+'</textarea></div>';
+  h+='<div class="form-row">';
+  h+='<div class="field"><label>النوع</label><select id="e_type_'+q.id+'" onchange="onTypeChange('+q.id+')">'+typeOptionsHtml(t)+'</select></div>';
+  h+='<div class="field"><label>الدرجة</label><input type="number" step="any" id="e_marks_'+q.id+'" value="'+(q.marks||1)+'"></div>';
+  h+='</div>';
+  // MCQ
+  h+='<div id="e_mcq_'+q.id+'">';
+  ['a','b','c','d'].forEach(function(L){
+    h+='<div class="field"><label>الاختيار ('+LETTERS_AR[L]+')</label><input id="e_opt'+L+'_'+q.id+'" value="'+_esc(q['option_'+L]||'')+'"></div>';
+  });
+  h+='<div class="field"><label>الإجابة الصحيحة</label><select id="e_correct_'+q.id+'">'+
+     '<option value="a"'+(q.correct==='a'?' selected':'')+'>أ</option>'+
+     '<option value="b"'+(q.correct==='b'?' selected':'')+'>ب</option>'+
+     '<option value="c"'+(q.correct==='c'?' selected':'')+'>ج</option>'+
+     '<option value="d"'+(q.correct==='d'?' selected':'')+'>د</option></select></div>';
+  h+='</div>';
+  // TrueFalse
+  h+='<div id="e_tf_'+q.id+'" style="display:none"><div class="field"><label>الإجابة الصحيحة</label>'+
+     '<select id="e_tfc_'+q.id+'"><option value="a"'+(q.correct==='a'?' selected':'')+'>صح</option>'+
+     '<option value="b"'+(q.correct==='b'?' selected':'')+'>خطأ</option></select></div></div>';
+  // answer_text (complete/essay)
+  h+='<div id="e_ans_'+q.id+'" style="display:none"><div class="field"><label>الإجابة النموذجية</label>'+
+     '<textarea id="e_atext_'+q.id+'" rows="2">'+_esc(q.answer_text||'')+'</textarea></div></div>';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+     '<button type="button" class="btn green sm" onclick="saveQ('+q.id+')">💾 حفظ التعديل</button>'+
+     '<button type="button" class="btn ghost sm" onclick="editQ('+q.id+')">إلغاء</button></div>';
+  return h;
+}
+function onTypeChange(qid){
+  var t=document.getElementById('e_type_'+qid).value;
+  document.getElementById('e_mcq_'+qid).style.display = t==='mcq'?'block':'none';
+  document.getElementById('e_tf_'+qid).style.display = t==='truefalse'?'block':'none';
+  document.getElementById('e_ans_'+qid).style.display = (t!=='mcq'&&t!=='truefalse'&&t!=='map'&&t!=='map_complete')?'block':'none';
+}
+function saveQ(qid){
+  var t=document.getElementById('e_type_'+qid).value;
+  var payload={qtype:t, text:document.getElementById('e_text_'+qid).value,
+    marks:document.getElementById('e_marks_'+qid).value};
+  if(t==='mcq'){
+    ['a','b','c','d'].forEach(function(L){ payload['option_'+L]=document.getElementById('e_opt'+L+'_'+qid).value; });
+    payload.correct=document.getElementById('e_correct_'+qid).value;
+  } else if(t==='truefalse'){
+    payload.correct=document.getElementById('e_tfc_'+qid).value;
+  } else {
+    payload.answer_text=document.getElementById('e_atext_'+qid).value;
+  }
+  var y=window.scrollY;
+  fetch('/exams/'+EID+'/question/'+qid+'/edit',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(d){
+    if(!d.ok){ alert(d.error||'تعذّر الحفظ'); return; }
+    refreshCard(d.question);
+    window.scrollTo(0,y);
+  }).catch(function(){ alert('تعذّر الاتصال'); });
+}
+// أعِد رسم بطاقة السؤال في وضع العرض بعد الحفظ (بلا إعادة تحميل)
+function refreshCard(q){
+  var card=document.getElementById('qcard-'+q.id); if(!card) return;
+  card.querySelector('.qtext').textContent=q.text;
+  card.querySelector('.qtype-lbl').textContent=QTYPE_LABELS[q.qtype]||q.qtype;
+  card.querySelector('.qmarks-lbl').textContent=(parseFloat(q.marks)||0)+' درجة';
+  var body=card.querySelector('.qbody'); body.innerHTML='';
+  if(q.qtype==='mcq'||q.qtype==='truefalse'){
+    var ul=document.createElement('ul'); ul.style.listStyle='none';
+    ['a','b','c','d'].forEach(function(L){
+      if(q['option_'+L]){ var li=document.createElement('li'); li.style.padding='3px 0';
+        if(q.correct===L){ li.style.color='var(--green)'; li.style.fontWeight='700'; }
+        li.textContent=LETTERS_AR[L]+') '+q['option_'+L]+(q.correct===L?' ✅':''); ul.appendChild(li); } });
+    body.appendChild(ul);
+  } else if(q.answer_text){
+    var p=document.createElement('p'); p.className='muted';
+    p.textContent=(q.qtype==='complete'?'الإجابة الصحيحة: ':'الإجابة النموذجية: ')+q.answer_text; body.appendChild(p);
+  }
+  card.querySelector('.qedit').style.display='none';
+  card.querySelector('.qview').style.display='block';
+}
+</script>
+{% endblock %}

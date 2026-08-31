@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}كروت QR{% endblock %}
+{% block heading %}🎫 كروت QR للطلاب{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h3>اختر ما تريد عرضه</h3>
+  <p class="muted" style="font-size:.88rem">لا يتم تحميل كل الطلاب تلقائيًا — اختر مجموعة معيّنة أو كل الطلاب.</p>
+  <form method="get" action="{{ url_for('cards_select') }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+    <div class="field" style="margin:0">
+      <label>المجموعة</label>
+      <select name="group">
+        <option value="">— اختر مجموعة —</option>
+        {% for g in groups %}
+        <option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn" type="submit" name="scope" value="group">👥 عرض كروت المجموعة</button>
+    <button class="btn ghost" type="submit" name="scope" value="all">🗂️ عرض كل الطلاب</button>
+  </form>
+</div>
+
+{% if students is not none %}
+  {% if students %}
+  <div class="card">
+    <div class="toolbar">
+      <span><b>{{ students|length }}</b> طالب</span>
+      <div class="spacer"></div>
+      {% if scope=='group' and sel_group %}
+      <a href="{{ url_for('all_cards', group=sel_group) }}" target="_blank" class="btn amber">🖨️ طباعة كل كروت المجموعة</a>
+      {% elif scope=='all' %}
+      <a href="{{ url_for('all_cards', scope='all') }}" target="_blank" class="btn amber">🖨️ طباعة كل الكروت</a>
+      {% endif %}
+      <button type="button" class="btn" id="printSelBtn" onclick="printSelected()" disabled>🖨️ طباعة المحدد (<span id="selCount">0</span>)</button>
+    </div>
+
+    <div class="table-wrap">
+    <table>
+      <tr>
+        <th style="width:34px"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="تحديد الكل"></th>
+        <th>الاسم</th><th>المجموعة</th><th>الكود</th><th>QR</th><th>إرسال واتساب</th>
+      </tr>
+      {% for s in students %}
+      <tr>
+        <td><input type="checkbox" class="selCard" value="{{ s.id }}" onchange="updateSel()"></td>
+        <td><b>{{ s.name }}</b></td>
+        <td>{{ s.group_name if s.group_name is defined else '' }}{{ s.grade or '' }}</td>
+        <td><span class="pill">{{ s.code }}</span></td>
+        <td><img src="{{ qr_map[s.id] }}" alt="QR" style="width:56px;height:56px"></td>
+        <td class="actions">
+          <a href="{{ url_for('student_card', sid=s.id) }}" target="_blank" class="btn sm ghost">🖨️ كارت</a>
+          <a href="{{ url_for('send_qr_whatsapp', sid=s.id) }}" class="btn sm wa">💬 إرسال QR</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    <p class="muted" style="font-size:.8rem;margin-top:8px">💬 «إرسال QR» يرسل كود الطالب لرقم الطالب و/أو ولي الأمر (المتاح منهما).</p>
+  </div>
+  {% else %}
+  <div class="card"><div class="empty"><div class="big">🎫</div>لا يوجد طلاب في هذا الاختيار.</div></div>
+  {% endif %}
+{% endif %}
+
+{% block scripts %}
+<script>
+function selectedIds(){
+  return Array.from(document.querySelectorAll('.selCard:checked')).map(c=>c.value);
+}
+function updateSel(){
+  var ids=selectedIds();
+  document.getElementById('selCount').textContent=ids.length;
+  document.getElementById('printSelBtn').disabled = ids.length===0;
+}
+function toggleAll(cb){
+  document.querySelectorAll('.selCard').forEach(function(c){c.checked=cb.checked;});
+  updateSel();
+}
+function printSelected(){
+  var ids=selectedIds();
+  if(!ids.length){ alert('اختر طالبًا واحدًا على الأقل'); return; }
+  window.open('{{ url_for("all_cards") }}?ids='+ids.join(','), '_blank');
+}
+</script>
+{% endblock %}
+{% endblock %}

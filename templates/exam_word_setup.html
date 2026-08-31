@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}إعداد امتحان Word{% endblock %}
+{% block heading %}🖨️ إعداد الامتحان الورقي (Word){% endblock %}
+{% block content %}
+<div class="card">
+  <p class="muted" style="margin-bottom:14px">عدد الأسئلة: <b>{{ nq }}</b> — اكتب اسم الامتحان وبيانات الترويسة ثم نزّل ملف Word (عربي RTL جاهز للطباعة).</p>
+  <form method="get" action="{{ url_for('exam_word', eid=ex.id) }}" id="wf">
+    <div class="field">
+      <label>اسم الامتحان (يظهر في أعلى المستند وفي اسم الملف) *</label>
+      <input name="title" required value="{{ ex.title }}" placeholder="مثال: امتحان الدراسات الاجتماعية – الوحدة الأولى">
+    </div>
+    <div class="form-row">
+      <div class="field"><label>الصف (اختياري)</label>
+        <input name="grade" value="{{ ex.grade or '' }}" placeholder="مثال: الصف السادس الابتدائي"></div>
+      <div class="field"><label>الترم (اختياري)</label>
+        <input name="term" placeholder="مثال: الترم الأول"></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn green" type="submit">⬇️ تنزيل امتحان Word</button>
+      <button class="btn ghost" type="submit" formaction="{{ url_for('exam_word', eid=ex.id, answers=1) }}">⬇️ Word بنموذج الإجابة</button>
+      <a href="{{ url_for('exams') }}" class="btn ghost">← رجوع للامتحانات</a>
+    </div>
+    <p class="muted" style="font-size:.82rem;margin-top:10px">💡 اسم الملف سيكون باسم الامتحان الذي تكتبه. المستند بالكامل عربي من اليمين لليسار.</p>
+  </form>
+</div>
+{% endblock %}

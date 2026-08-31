@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}الأعوام الدراسية{% endblock %}
+{% block heading %}🎓 إدارة الأعوام الدراسية{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn" onclick="openModal('addYear')">➕ عام دراسي جديد</button>
+  <a href="{{ url_for('enroll_students') }}" class="btn">👥 إضافة طلاب للعام الحالي</a>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+  <table>
+    <tr><th>العام الدراسي</th><th>الطلاب</th><th>المجموعات</th><th>الحصص</th><th>الحالة</th><th>إجراءات</th></tr>
+    {% for y in years %}
+    <tr>
+      <td><b>{{ y.name }}</b>{% if y.start_date %}<div class="muted" style="font-size:.8rem">{{ y.start_date }} → {{ y.end_date or '...' }}</div>{% endif %}</td>
+      <td><span class="pill">{{ y.n_students }}</span></td>
+      <td><span class="pill">{{ y.n_groups }}</span></td>
+      <td><span class="pill">{{ y.n_sessions }}</span></td>
+      <td>{% if y.is_current %}<span class="badge present">الحالي</span>{% else %}<span class="badge gray">سابق</span>{% endif %}</td>
+      <td class="actions">
+        <a href="{{ url_for('browse_year', yid=y.id) }}" class="btn sm ghost">👁️ استعراض</a>
+        {% if not y.is_current %}
+        <a href="{{ url_for('set_current_year_route', yid=y.id) }}" class="btn sm green"
+           onclick="return confirm('جعل {{ y.name }} هو العام الدراسي الحالي؟')">✅ اجعله الحالي</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+
+<!-- الفصول الدراسية (الترمات) لكل عام -->
+<div class="card">
+  <h3>📆 الفصول الدراسية (الترمات)</h3>
+  <p class="muted" style="font-size:.85rem">حدّد ترمات كل عام (مثل الترم الأول/الثاني) بتواريخها. تظهر لولي الأمر لاختيار الترم وعرض بياناته فقط.</p>
+  {% for y in years %}
+  <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <b>🎓 {{ y.name }} {% if y.is_current %}<span class="badge present">الحالي</span>{% endif %}</b>
+      <button class="btn sm" onclick="openModal('addTerm{{ y.id }}')">➕ إضافة ترم</button>
+    </div>
+    {% set yterms = terms_by_year.get(y.id, []) %}
+    {% if yterms %}
+    <div class="table-wrap" style="margin-top:8px">
+    <table>
+      <tr><th>الترم</th><th>من</th><th>إلى</th><th>إجراءات</th></tr>
+      {% for t in yterms %}
+      <tr>
+        <td><b>{{ t.name }}</b></td>
+        <td>{{ t.start_date or '-' }}</td>
+        <td>{{ t.end_date or '-' }}</td>
+        <td class="actions">
+          <button class="btn sm" onclick='editTerm({{ t.id }}, {{ t.name|tojson }}, {{ (t.start_date or "")|tojson }}, {{ (t.end_date or "")|tojson }})'>تعديل</button>
+          <a href="{{ url_for('delete_term', tid=t.id) }}" class="btn sm red" onclick="return confirm('حذف الترم؟')">حذف</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% else %}
+    <p class="muted" style="margin-top:8px">لا توجد ترمات لهذا العام بعد.</p>
+    {% endif %}
+    <!-- modal إضافة ترم -->
+    <div class="modal" id="addTerm{{ y.id }}">
+      <div class="modal-box">
+        <div class="modal-head"><h3>➕ ترم جديد — {{ y.name }}</h3>
+          <button class="close" onclick="closeModal('addTerm{{ y.id }}')">&times;</button></div>
+        <form method="post" action="{{ url_for('add_term', yid=y.id) }}">
+          <div class="field"><label>اسم الترم *</label><input name="name" required placeholder="مثال: الترم الأول"></div>
+          <div class="form-row">
+            <div class="field"><label>تاريخ البداية</label><input name="start_date" type="date"></div>
+            <div class="field"><label>تاريخ النهاية</label><input name="end_date" type="date"></div>
+          </div>
+          <button class="btn green" type="submit">حفظ الترم</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- modal تعديل ترم -->
+<div class="modal" id="editTerm">
+  <div class="modal-box">
+    <div class="modal-head"><h3>تعديل الترم</h3>
+      <button class="close" onclick="closeModal('editTerm')">&times;</button></div>
+    <form method="post" id="editTermForm">
+      <div class="field"><label>اسم الترم *</label><input name="name" id="et_name" required></div>
+      <div class="form-row">
+        <div class="field"><label>تاريخ البداية</label><input name="start_date" id="et_start" type="date"></div>
+        <div class="field"><label>تاريخ النهاية</label><input name="end_date" id="et_end" type="date"></div>
+      </div>
+      <button class="btn green" type="submit">حفظ التعديلات</button>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="addYear">
+  <div class="modal-box">
+    <div class="modal-head"><h3>➕ عام دراسي جديد</h3>
+      <button class="close" onclick="closeModal('addYear')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_year') }}">
+      <div class="field"><label>اسم العام الدراسي *</label>
+        <input name="name" required placeholder="مثال: 2026/2027"></div>
+      <div class="form-row">
+        <div class="field"><label>تاريخ البداية</label><input name="start_date" type="date"></div>
+        <div class="field"><label>تاريخ النهاية</label><input name="end_date" type="date"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+        <input type="checkbox" name="make_current" value="1" checked> اجعله العام الدراسي الحالي
+      </label>
+      <p class="muted" style="font-size:.85rem">لن يُحذف أي عام سابق — كل الأعوام تبقى محفوظة ومتاحة للاستعراض.</p>
+      <button class="btn green" type="submit">إنشاء العام الدراسي</button>
+    </form>
+  </div>
+</div>
+{% block scripts %}
+<script>
+function editTerm(id,name,start,end){
+  document.getElementById('editTermForm').action = '/terms/'+id+'/edit';
+  document.getElementById('et_name').value = name;
+  document.getElementById('et_start').value = start;
+  document.getElementById('et_end').value = end;
+  openModal('editTerm');
+}
+</script>
+{% endblock %}
+{% endblock %}

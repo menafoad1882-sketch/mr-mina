@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}تذكيرات المتأخرات{% endblock %}
+{% block heading %}تذكيرات المتأخرات المالية{% endblock %}
+{% block content %}
+<div class="card" style="background:#fffbeb">
+  <p>لما طالب يدفع أقل من سعر الحصة، النظام بيحسب المتبقي ويعمل تذكيرًا. تقدر <b>تحدد تاريخ ووقت</b> كل تذكير و<b>وسيلة الإرسال</b> (واتساب أو إيميل).</p>
+  <p style="margin-top:8px">💰 لما ولي الأمر يدفع المتبقّي، اضغط <b>«تم الدفع»</b> — النظام هيضيف المبلغ تلقائيًا للتقارير المالية ويقفل التذكير. زر <b>«تجاهل»</b> بيقفل التذكير بدون تسجيل دفع.</p>
+  {% if not teacher_phone %}
+  <p style="margin-top:8px;color:var(--red)">⚠️ لإرسال تذكيرات الواتساب، اضبط <b>رقم واتساب المدرس</b> من الإعدادات. وللإيميل اضبط SMTP.</p>
+  {% else %}
+  <p style="margin-top:8px">رقم المدرس: <span class="pill">{{ teacher_phone }}</span></p>
+  {% endif %}
+</div>
+
+<!-- إعدادات تنبيه تكرار الغياب -->
+<div class="card">
+  <h3>⚠️ تنبيه عند تكرار غياب الطالب</h3>
+  <p class="muted" style="font-size:.85rem;margin-bottom:12px">لو تغيّب الطالب عددًا من المرات (تحدّده أنت)، يظهر تنبيه في مركز الإشعارات ويُرسَل واتساب لولي الأمر تلقائيًا — مرة واحدة لكل حدّ (بلا تكرار).</p>
+  <form method="post" action="{{ url_for('absence_config_save') }}">
+    <label class="switch" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer">
+      <input type="checkbox" name="enabled" value="1" style="width:20px;height:20px" {{ 'checked' if absence_cfg.enabled }}>
+      <span style="font-weight:600">تفعيل تنبيه الغياب</span>
+    </label>
+    <div class="form-row">
+      <div class="field"><label>عدد مرات الغياب المطلوبة</label>
+        <input type="number" name="threshold" min="1" max="50" value="{{ absence_cfg.threshold }}"></div>
+      <div class="field"><label>طريقة التنبيه</label>
+        <label style="display:block;font-weight:400;font-size:.9rem"><input type="checkbox" name="notify_site" value="1" {{ 'checked' if absence_cfg.site }}> إشعار داخل الموقع</label>
+        <label style="display:block;font-weight:400;font-size:.9rem"><input type="checkbox" name="notify_wa" value="1" {{ 'checked' if absence_cfg.wa }}> WhatsApp لولي الأمر</label>
+        <label style="display:block;font-weight:400;font-size:.9rem;opacity:.6"><input type="checkbox" name="notify_email" value="1" {{ 'checked' if absence_cfg.email }}> Email لولي الأمر (لاحقًا)</label>
+      </div>
+    </div>
+    <button class="btn green" type="submit">💾 حفظ إعدادات تنبيه الغياب</button>
+  </form>
+</div>
+
+<div class="grid stats">
+  <div class="stat amber"><div class="num">{{ due|length }}</div><div class="lbl">🔔 مستحقة الآن</div></div>
+  <div class="stat" style="border-color:var(--red)"><div class="num" style="color:var(--red)">{{ '%g'|format(due_total) }} ج</div><div class="lbl">إجمالي المتبقّي المستحق</div></div>
+  <div class="stat"><div class="num">{{ upcoming|length }}</div><div class="lbl">⏳ مجدولة قادمة</div></div>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h3 style="margin:0">🔔 تذكيرات مستحقة الآن</h3>
+    <div class="spacer"></div>
+    {% if due %}
+    <form method="post" action="{{ url_for('reminders_send') }}" style="display:inline">
+      <button class="btn wa" type="submit">📤 إرسال كل المستحق الآن</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if due %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>المجموعة</th><th>المتبقي</th><th>الموعد</th><th>الوسيلة</th><th>إجراءات</th></tr>
+    {% for r in due %}
+    <tr>
+      <td><b>{{ r.name }}</b></td>
+      <td>{{ r.group_name or '-' }}</td>
+      <td><b style="color:var(--red)">{{ '%g'|format(r.remaining) }} ج</b></td>
+      <td>{{ r.due_date }} {{ r.due_time or '09:00' }}</td>
+      <td>{% if r.method=='email' %}📧 إيميل{% else %}💬 واتساب{% endif %}</td>
+      <td class="actions">
+        <a href="{{ url_for('reminder_send_one', rid=r.id) }}" class="btn sm wa">📤 إرسال</a>
+        <button class="btn sm ghost" onclick='schedule({{ r.id }},{{ r.due_date|tojson }},{{ (r.due_time or "09:00")|tojson }},{{ (r.method or "whatsapp")|tojson }})'>🗓️ جدولة</button>
+        <a href="{{ url_for('reminder_collect', rid=r.id) }}" class="btn sm green">💰 تم الدفع</a>
+        <a href="{{ url_for('reminder_done', rid=r.id) }}" class="btn sm ghost" onclick="return confirm('إنهاء التذكير بدون تسجيل دفع؟')">تجاهل</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">✅</div>لا توجد تذكيرات مستحقة حاليًا.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>⏳ تذكيرات مجدولة قادمة</h3>
+  {% if upcoming %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>المجموعة</th><th>المتبقي</th><th>الموعد المجدول</th><th>الوسيلة</th><th>إجراءات</th></tr>
+    {% for r in upcoming %}
+    <tr>
+      <td><b>{{ r.name }}</b></td>
+      <td>{{ r.group_name or '-' }}</td>
+      <td>{{ '%g'|format(r.remaining) }} ج</td>
+      <td>{{ r.due_date }} {{ r.due_time or '09:00' }}</td>
+      <td>{% if r.method=='email' %}📧 إيميل{% else %}💬 واتساب{% endif %}</td>
+      <td class="actions">
+        <button class="btn sm" onclick='schedule({{ r.id }},{{ r.due_date|tojson }},{{ (r.due_time or "09:00")|tojson }},{{ (r.method or "whatsapp")|tojson }})'>🗓️ تعديل الموعد</button>
+        <a href="{{ url_for('reminder_send_one', rid=r.id) }}" class="btn sm ghost">📤 إرسال الآن</a>
+        <a href="{{ url_for('reminder_collect', rid=r.id) }}" class="btn sm green">💰 تم الدفع</a>
+        <a href="{{ url_for('reminder_done', rid=r.id) }}" class="btn sm ghost" onclick="return confirm('إنهاء التذكير بدون تسجيل دفع؟')">تجاهل</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">لا توجد تذكيرات مجدولة قادمة.</p>
+  {% endif %}
+</div>
+
+{% if done %}
+<div class="card">
+  <h3>✅ تذكيرات تم إرسالها/تحصيلها (آخر 20)</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>المبلغ</th><th>وقت الإنهاء</th></tr>
+    {% for r in done %}
+    <tr><td>{{ r.name }}</td><td>{{ '%g'|format(r.remaining) }} ج</td><td class="muted">{{ r.sent_at or '-' }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="modal" id="scheduleModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3>🗓️ جدولة التذكير</h3>
+      <button class="close" onclick="closeModal('scheduleModal')">&times;</button></div>
+    <form method="post" id="scheduleForm">
+      <div class="form-row">
+        <div class="field"><label>التاريخ</label><input type="date" name="due_date" id="s_date" required></div>
+        <div class="field"><label>الوقت</label><input type="time" name="due_time" id="s_time" required></div>
+      </div>
+      <div class="field"><label>وسيلة الإرسال</label>
+        <select name="method" id="s_method">
+          <option value="whatsapp">💬 واتساب</option>
+          <option value="email">📧 إيميل</option>
+        </select></div>
+      <button class="btn green" type="submit">حفظ الموعد</button>
+    </form>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+function schedule(id,date,time,method){
+  document.getElementById('scheduleForm').action='/reminders/'+id+'/schedule';
+  document.getElementById('s_date').value=date;
+  document.getElementById('s_time').value=time;
+  document.getElementById('s_method').value=method;
+  openModal('scheduleModal');
+}
+</script>
+{% endblock %}
+{% endblock %}

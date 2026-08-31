@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}الامتحانات{% endblock %}
+{% block heading %}الامتحانات{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <button class="btn" onclick="openModal('addExam')">➕ امتحان إلكتروني</button>
+  <button class="btn" onclick="openModal('addPaper')">📄 امتحان ورقي</button>
+  <a href="{{ url_for('question_bank') }}" class="btn" style="background:#0891b2">🏦 بنك الأسئلة</a>
+</div>
+
+<!-- الامتحانات الإلكترونية -->
+<div class="card">
+  <h3>🖥️ الامتحانات الإلكترونية</h3>
+  {% if online %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>العنوان</th><th>المجموعة</th><th>الأسئلة/الدرجة</th><th>المؤدّون</th><th>إجراءات</th></tr>
+    {% for e in online %}
+    <tr>
+      <td><b>{{ e.title }}</b></td>
+      <td>{{ e.group_name or 'الكل' }}</td>
+      <td><span class="pill">{{ e.nq }} سؤال</span> {{ '%g'|format(e.total_marks) }} درجة</td>
+      <td><span class="pill">{{ e.nr }}</span></td>
+      <td class="actions">
+        <a href="{{ url_for('exam_edit', eid=e.id) }}" class="btn sm">الأسئلة والرابط</a>
+        <a href="{{ url_for('exam_creds', eid=e.id) }}" class="btn sm wa">🔑 بيانات الدخول</a>
+        <a href="{{ url_for('exam_results', eid=e.id) }}" class="btn sm ghost">النتائج</a>
+        <a href="{{ url_for('delete_exam', eid=e.id) }}" class="btn sm red" onclick="return confirm('حذف الامتحان؟')">حذف</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">🖥️</div>لا توجد امتحانات إلكترونية بعد.</div>
+  {% endif %}
+</div>
+
+<!-- الامتحانات الورقية -->
+<div class="card">
+  <h3>📄 الامتحانات الورقية</h3>
+  {% if paper %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>العنوان</th><th>المجموعة</th><th>الدرجة الكلية</th><th>الدرجات المُدخلة</th><th>إجراءات</th></tr>
+    {% for e in paper %}
+    <tr>
+      <td><b>{{ e.title }}</b></td>
+      <td>{{ e.group_name or 'الكل' }}</td>
+      <td>{{ '%g'|format(e.total_marks) }}</td>
+      <td><span class="pill">{{ e.nr }}</span></td>
+      <td class="actions">
+        <a href="{{ url_for('paper_grades', eid=e.id) }}" class="btn sm">✏️ إدخال الدرجات</a>
+        <a href="{{ url_for('exam_results', eid=e.id) }}" class="btn sm ghost">📊 النتائج</a>
+        <a href="{{ url_for('delete_exam', eid=e.id) }}" class="btn sm red" onclick="return confirm('حذف الامتحان؟')">حذف</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">📄</div>لا توجد امتحانات ورقية بعد.</div>
+  {% endif %}
+</div>
+
+<!-- Modal: إلكتروني -->
+<div class="modal" id="addExam">
+  <div class="modal-box">
+    <div class="modal-head"><h3>➕ إنشاء امتحان إلكتروني</h3>
+      <button class="close" onclick="closeModal('addExam')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_exam') }}">
+      <input type="hidden" name="type" value="online">
+      <div class="field"><label>عنوان الامتحان *</label><input name="title" required placeholder="مثال: امتحان الوحدة الأولى"></div>
+      <div class="form-row">
+        <div class="field"><label>المجموعة</label>
+          <select name="group_id"><option value="">كل الطلاب</option>
+            {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>المدة (دقيقة)</label><input name="duration" type="number" value="30"></div>
+      </div>
+      <button class="btn green" type="submit">إنشاء وإضافة الأسئلة</button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: ورقي -->
+<div class="modal" id="addPaper">
+  <div class="modal-box">
+    <div class="modal-head"><h3>📄 إنشاء امتحان ورقي</h3>
+      <button class="close" onclick="closeModal('addPaper')">&times;</button></div>
+    <form method="post" action="{{ url_for('add_paper_exam') }}">
+      <div class="field"><label>عنوان الامتحان *</label><input name="title" required placeholder="مثال: امتحان شهر أكتوبر"></div>
+      <div class="form-row">
+        <div class="field"><label>المجموعة</label>
+          <select name="group_id"><option value="">كل الطلاب</option>
+            {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+          </select></div>
+        <div class="field"><label>الدرجة الكلية *</label>
+          <input name="total_marks" type="number" step="any" required placeholder="مثال: 50"></div>
+      </div>
+      <button class="btn green" type="submit">إنشاء وإدخال الدرجات</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

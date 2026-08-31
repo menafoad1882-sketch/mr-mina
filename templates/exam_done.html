@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="{{ ui_theme or 'light' }}">
+
+<head>
+<script>(function(){try{var s=localStorage.getItem('ui_theme');if(s){document.documentElement.setAttribute('data-theme',s);}}catch(e){}})();</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تم التسليم</title>
+<style>
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f1f5f9;display:grid;
+  place-items:center;min-height:100vh;margin:0;padding:16px}
+.box{background:#fff;border-radius:20px;padding:40px 30px;text-align:center;max-width:440px;
+  box-shadow:0 10px 40px rgba(0,0,0,.1)}
+.big{font-size:4rem}
+h1{color:#16a34a;margin:12px 0}
+.score{font-size:3rem;font-weight:800;color:#2563eb;margin:16px 0}
+.pct{background:#eff6ff;color:#2563eb;display:inline-block;padding:8px 20px;border-radius:30px;font-weight:700}
+p{color:#64748b}
+.pending{background:#fef9c3;color:#854d0e;border:1px solid #fde047;border-radius:12px;
+  padding:18px;margin-top:20px;font-weight:700;font-size:1.05rem}
+.pending .sub{font-weight:500;font-size:.9rem;margin-top:8px;color:#a16207}
+.grade{display:inline-block;padding:6px 18px;border-radius:30px;font-weight:700;
+  background:#dcfce7;color:#15803d;margin:8px 6px 0}
+.review{margin-top:24px;text-align:right}
+.review h3{color:#0f172a;font-size:1.05rem;margin-bottom:10px;text-align:center}
+.rev-item{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:8px}
+.rev-item .q{font-weight:700;color:#0f172a;margin-bottom:6px}
+.rev-item .a{font-size:.9rem;padding:2px 0}
+.rev-item .given{color:#334155} .rev-item .correct{color:#15803d;font-weight:600}
+html[data-theme="dark"] .box{background:#1e293b;color:#f1f5f9}
+html[data-theme="dark"] h1{color:#f1f5f9}
+html[data-theme="dark"] .sub,html[data-theme="dark"] p{color:#94a3b8}
+html[data-theme="dark"] label{color:#cbd5e1}
+html[data-theme="dark"] input{background:#0f172a;color:#f1f5f9;border-color:#334155}
+.tt{position:fixed;top:14px;left:14px;background:rgba(255,255,255,.85);border:none;width:40px;height:40px;border-radius:12px;font-size:1.15rem;cursor:pointer;z-index:20}
+html[data-theme="dark"] .tt{background:rgba(30,41,59,.9)}
+</style>
+</head>
+<body>
+<button type="button" class="tt" id="tt" onclick="tglTheme()" title="تبديل الوضع">🌙</button>
+<div class="box">
+  {% if pending %}
+    <div class="big">📝</div>
+    <h1 style="color:#ca8a04">تم تسليم الامتحان بنجاح</h1>
+    <p>{{ ex.title }}</p>
+    <div class="pending">
+      ⏳ في انتظار تصحيح المستر
+      <div class="sub">امتحانك يحتوي على أسئلة مقالية يصححها المدرس يدويًا.
+        ستظهر درجتك النهائية بعد انتهاء التصحيح.</div>
+    </div>
+    <p style="margin-top:20px">بالتوفيق! 🌟</p>
+  {% elif not show_result %}
+    {# إعداد: عدم إظهار النتيجة للطالب #}
+    <div class="big">✅</div>
+    <h1>تم تسليم الامتحان بنجاح</h1>
+    <p>{{ ex.title }}</p>
+    <p style="margin-top:20px">تم تسجيل إجاباتك. سيُعلن المدرس النتيجة لاحقًا. بالتوفيق! 🌟</p>
+  {% else %}
+    <div class="big">🎉</div>
+    <h1>تم تسليم الامتحان بنجاح</h1>
+    <p>{{ ex.title }}</p>
+    {% if show_score %}<div class="score">{{ '%g'|format(score) }} / {{ '%g'|format(ex.total_marks) }}</div>{% endif %}
+    {% if show_pct %}<span class="pct">النسبة: {{ pct }}%</span>{% endif %}
+    {% if show_grade and grade_label %}<span class="grade">التقدير: {{ grade_label }}</span>{% endif %}
+    {% if not show_score and not show_pct and not show_grade %}
+      <p style="margin-top:16px;font-weight:600;color:#16a34a">تم تسجيل نتيجتك ✅</p>
+    {% endif %}
+    <p style="margin-top:20px">تم تسجيل نتيجتك. بالتوفيق! 🌟</p>
+    {% if review %}
+    <div class="review">
+      <h3>📋 مراجعة الإجابات الصحيحة</h3>
+      {% for r in review %}
+      <div class="rev-item">
+        <div class="q">{{ loop.index }}. {{ r.text }}</div>
+        <div class="a given">إجابتك: {{ r.given }}</div>
+        <div class="a correct">✅ الإجابة الصحيحة: {{ r.correct }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endif %}
+</div>
+{% include "_theme_toggle.html" %}
+</body>
+</html>

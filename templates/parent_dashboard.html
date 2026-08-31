@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="{{ ui_theme or 'light' }}">
+
+<head>
+<script>(function(){try{var s=localStorage.getItem('ui_theme');if(s){document.documentElement.setAttribute('data-theme',s);}}catch(e){}})();</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بوابة ولي الأمر</title>
+<style>
+:root{--teal:#0891b2;--green:#16a34a;--red:#dc2626;--amber:#d97706;--muted:#64748b;--border:#e2e8f0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f1f5f9;color:#0f172a;line-height:1.6}
+.top{background:linear-gradient(135deg,#0f766e,#0891b2);color:#fff;padding:16px 20px;
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.top h1{font-size:1.2rem}
+.top .out{background:rgba(255,255,255,.2);color:#fff;padding:8px 16px;border-radius:20px;
+  text-decoration:none;font-weight:600;font-size:.9rem}
+.wrap{max-width:900px;margin:0 auto;padding:20px}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card h3{margin-bottom:14px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tabs a{padding:8px 16px;border-radius:20px;background:#fff;color:var(--muted);text-decoration:none;font-weight:600;font-size:.9rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.tabs a.active{background:var(--teal);color:#fff}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.stat{border-radius:12px;padding:16px;text-align:center;border:1px solid var(--border)}
+.stat .n{font-size:1.8rem;font-weight:800}
+.stat .l{color:var(--muted);font-size:.85rem;margin-top:4px}
+.stat.g{border-color:#86efac} .stat.g .n{color:var(--green)}
+.stat.a{border-color:#fde047} .stat.a .n{color:var(--amber)}
+.stat.r{border-color:#fca5a5} .stat.r .n{color:var(--red)}
+.stat.t{border-color:#67e8f9} .stat.t .n{color:var(--teal)}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{padding:10px 8px;text-align:right;border-bottom:1px solid var(--border)}
+th{background:#f8fafc;color:var(--muted);font-size:.82rem}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:700}
+.badge.present{background:#dcfce7;color:#15803d}
+.badge.late{background:#fef9c3;color:#a16207}
+.badge.absent{background:#fee2e2;color:#b91c1c}
+.badge.done{background:#dcfce7;color:#15803d}
+.badge.not{background:#fee2e2;color:#b91c1c}
+.badge.gray{background:#e2e8f0;color:#475569}
+.pill{background:#ecfeff;color:var(--teal);padding:3px 12px;border-radius:20px;font-weight:700;font-size:.85rem}
+.table-wrap{overflow-x:auto}
+.level-box{background:linear-gradient(135deg,#ecfeff,#f0fdfa);border:1px solid #67e8f9;
+  border-radius:12px;padding:18px;text-align:center}
+.level-box .lv{font-size:1.6rem;font-weight:800;color:var(--teal)}
+.child-sel{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.child-sel a{padding:8px 16px;border-radius:10px;background:#fff;text-decoration:none;color:#0f172a;
+  font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.06);border:2px solid transparent}
+.child-sel a.active{border-color:var(--teal);color:var(--teal)}
+.empty{text-align:center;padding:30px;color:var(--muted)}
+.flash{max-width:900px;margin:12px auto 0;padding:12px 16px;border-radius:10px;font-weight:600}
+.flash.success{background:#dcfce7;color:#15803d} .flash.error{background:#fee2e2;color:#b91c1c}
+html[data-theme="dark"] body{background:#0f172a;color:#f1f5f9}
+html[data-theme="dark"] .card{background:#1e293b;color:#f1f5f9;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+html[data-theme="dark"] .tabs a{background:#1e293b;color:#94a3b8;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+html[data-theme="dark"] th{background:#273449;color:#94a3b8}
+html[data-theme="dark"] .stat{background:#1e293b}
+html[data-theme="dark"] .child-sel a{background:#1e293b;color:#f1f5f9}
+html[data-theme="dark"] .level-box{background:linear-gradient(135deg,#134e4a,#0f2942);border-color:#0e7490}
+html[data-theme="dark"] .pill{background:#134e4a}
+.tt{position:fixed;top:12px;left:12px;background:rgba(255,255,255,.85);border:none;width:40px;height:40px;
+  border-radius:12px;font-size:1.15rem;cursor:pointer;z-index:20}
+html[data-theme="dark"] .tt{background:rgba(30,41,59,.9)}
+</style>
+</head>
+<body>
+<button type="button" class="tt" id="tt" onclick="tglTheme()" title="تبديل الوضع">🌙</button>
+<div class="top">
+  <h1>{% if parent_logo %}<img src="{{ parent_logo }}" alt="" style="height:32px;vertical-align:middle;margin-left:6px">{% else %}👨‍👩‍👦{% endif %} بوابة ولي الأمر — {{ parent_name }}</h1>
+  <a class="out" href="{{ url_for('parent_logout') }}">تسجيل الخروج</a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+{% endwith %}
+
+<div class="wrap">
+{% if not students %}
+  <div class="card empty">
+    <div style="font-size:2.5rem">📭</div>
+    <p>لا يوجد طلاب مرتبطون بحسابك بعد. برجاء التواصل مع المدرس.</p>
+  </div>
+{% else %}
+  {% if students|length > 1 %}
+  <div class="child-sel">
+    {% for s in students %}
+    <a href="{{ url_for('parent_dashboard', student=s.id, term=sel_term_id) }}" class="{{ 'active' if sel and s.id==sel.id }}">👦 {{ s.name }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if terms %}
+  <div class="card" style="padding:14px">
+    <label style="font-weight:700;display:block;margin-bottom:8px">📆 اختيار الترم:</label>
+    <div class="child-sel">
+      <a href="{{ url_for('parent_dashboard', student=sel.id) }}" class="{{ 'active' if not sel_term_id }}">كل الترمات</a>
+      {% for t in terms %}
+      <a href="{{ url_for('parent_dashboard', student=sel.id, term=t.id) }}" class="{{ 'active' if sel_term_id==t.id }}">{{ t.name }}</a>
+      {% endfor %}
+    </div>
+    {% if sel_term %}<p class="muted" style="font-size:.85rem;margin-top:6px">تُعرض بيانات: <b>{{ sel_term.name }}</b> ({{ sel_term.start_date }} → {{ sel_term.end_date }})</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>{{ sel.name }}</h3>
+    <p class="muted">{{ sel.group_name or 'بدون مجموعة' }}{% if sel.grade %} · {{ sel.grade }}{% endif %}</p>
+  </div>
+
+  <!-- المستوى -->
+  <div class="card">
+    <h3>📊 مستوى الطالب وتقييم المدرس</h3>
+    <div class="grid">
+      <div class="level-box">
+        <div class="lv">{{ level }}</div>
+        <div class="l muted">التقييم العام</div>
+      </div>
+      <div class="stat t"><div class="n">{{ avg_pct if avg_pct is not none else '—' }}{% if avg_pct is not none %}%{% endif %}</div><div class="l">متوسط الدرجات</div></div>
+      <div class="stat t"><div class="n">{{ att_pct if att_pct is not none else '—' }}{% if att_pct is not none %}%{% endif %}</div><div class="l">نسبة الحضور</div></div>
+    </div>
+  </div>
+
+  <!-- الحضور -->
+  <div class="card">
+    <h3>📅 الحضور</h3>
+    <div class="grid" style="margin-bottom:16px">
+      <div class="stat g"><div class="n">{{ stats.present }}</div><div class="l">حضور</div></div>
+      <div class="stat a"><div class="n">{{ stats.late }}</div><div class="l">تأخير</div></div>
+      <div class="stat r"><div class="n">{{ stats.absent }}</div><div class="l">غياب</div></div>
+    </div>
+    {% if att %}
+    <div class="table-wrap">
+    <table>
+      <tr><th>التاريخ</th><th>الحصة</th><th>الحالة</th><th>الواجب</th></tr>
+      {% for a in att %}
+      <tr>
+        <td>{{ a.date }}</td>
+        <td>{{ a.title or '-' }}</td>
+        <td><span class="badge {{ a.status }}">{{ status_ar[a.status] }}</span></td>
+        <td>{% if a.homework=='done' %}<span class="badge done">✅ عمله</span>
+            {% elif a.homework=='incomplete' %}<span class="badge late">⚠️ غير مكتمل</span>
+            {% elif a.homework=='not_done' %}<span class="badge not">❌ لم يعمله</span>
+            {% else %}<span class="badge gray">-</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% else %}<p class="muted">لا يوجد سجل حضور بعد.</p>{% endif %}
+  </div>
+
+  <!-- الدرجات -->
+  <div class="card">
+    <h3>📝 نتائج الامتحانات</h3>
+    {% if results %}
+    <div class="table-wrap">
+    <table>
+      <tr><th>الامتحان</th><th>التاريخ</th><th>الدرجة</th><th>من</th><th>النسبة</th></tr>
+      {% for r in results %}
+      <tr>
+        <td><b>{{ r.title }}</b></td>
+        <td class="muted">{{ (r.taken_at or '')[:10] }}</td>
+        <td>{{ '%g'|format(r.score) }}</td>
+        <td>{{ '%g'|format(r.total_marks) }}</td>
+        <td><span class="badge {{ 'present' if r.pct>=50 else 'absent' }}">{{ r.pct }}%</span></td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% else %}<p class="muted">لا توجد نتائج امتحانات بعد.</p>{% endif %}
+  </div>
+{% endif %}
+</div>
+{% include "_theme_toggle.html" %}
+</body>
+</html>

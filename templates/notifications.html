@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}مركز الإشعارات{% endblock %}
+{% block heading %}🔔 مركز الإشعارات{% endblock %}
+{% block content %}
+
+<div class="grid stats" style="margin-bottom:6px">
+  <div class="stat amber"><div class="num">{{ n.n_grading }}</div><div class="lbl">📝 محاولات تحتاج تصحيح</div></div>
+  <div class="stat" style="border-color:var(--red)"><div class="num" style="color:var(--red)">{{ n.n_unpaid }}</div><div class="lbl">💰 طلاب عليهم متبقّي</div></div>
+  <div class="stat" style="border-color:var(--amber)"><div class="num" style="color:var(--amber)">{{ n.n_absence }}</div><div class="lbl">⚠️ تنبيهات غياب</div></div>
+  <div class="stat"><div class="num">{{ n.n_failed }}</div><div class="lbl">✉️ رسائل فشل إرسالها</div></div>
+</div>
+
+<!-- تنبيهات تكرار الغياب -->
+<div class="card">
+  <h3>⚠️ تنبيهات تكرار غياب الطلاب</h3>
+  {% if n.absences %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>عدد الغيابات</th><th>الحد</th><th>التاريخ</th><th></th></tr>
+    {% for a in n.absences %}
+    <tr>
+      <td><b>{{ a.name }}</b></td>
+      <td><span class="pill" style="background:#fef9c3;color:#854d0e">{{ a.absence_count }}</span></td>
+      <td class="muted">{{ a.threshold }}</td>
+      <td class="muted" style="font-size:.8rem">{{ a.created_at or '' }}</td>
+      <td><a href="{{ url_for('student_profile', sid=a.student_id) }}" class="btn sm ghost">ملف الطالب</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">✅</div>لا توجد تنبيهات غياب.</div>
+  {% endif %}
+</div>
+
+<!-- امتحانات تحتاج تصحيح -->
+<div class="card">
+  <h3>📝 امتحانات تنتظر تصحيح المدرس</h3>
+  {% if grading_detail %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الامتحان</th><th>عدد المحاولات</th><th>الطلاب</th><th></th></tr>
+    {% for g in grading_detail %}
+    <tr>
+      <td><b>{{ g.title }}</b></td>
+      <td><span class="pill" style="background:#fef9c3;color:#854d0e">{{ g.n }}</span></td>
+      <td class="muted" style="font-size:.85rem">
+        {% for s in g.students[:6] %}{{ s.name }}{{ '، ' if not loop.last }}{% endfor %}{% if g.students|length > 6 %} …{% endif %}
+      </td>
+      <td><a href="{{ url_for('exam_results', eid=g.eid) }}" class="btn sm">فتح للتصحيح</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">✅</div>لا توجد محاولات تنتظر التصحيح.</div>
+  {% endif %}
+</div>
+
+<!-- متأخرات مالية -->
+<div class="card">
+  <h3>💰 طلاب عليهم مبالغ متبقّية</h3>
+  {% if n.unpaid %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>عدد التذكيرات</th><th>إجمالي المتبقّي</th><th></th></tr>
+    {% for u in n.unpaid %}
+    <tr>
+      <td><b>{{ u.name }}</b></td>
+      <td><span class="pill">{{ u.n }}</span></td>
+      <td style="color:var(--red);font-weight:700">{{ '%g'|format(u.total) }} ج</td>
+      <td><a href="{{ url_for('student_profile', sid=u.student_id) }}" class="btn sm ghost">ملف الطالب</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <div style="margin-top:10px"><a href="{{ url_for('reminders') }}" class="btn">🔔 إدارة التذكيرات</a></div>
+  {% else %}
+  <div class="empty"><div class="big">✅</div>لا توجد متأخرات مالية.</div>
+  {% endif %}
+</div>
+
+<!-- رسائل فشل إرسالها -->
+<div class="card">
+  <h3>✉️ رسائل واتساب فشل إرسالها</h3>
+  {% if n.failed %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>الرقم</th><th>النوع</th><th>السبب</th><th>الوقت</th></tr>
+    {% for f in n.failed %}
+    <tr>
+      <td style="direction:ltr;text-align:left">{{ f.phone or '-' }}</td>
+      <td class="muted">{{ f.msg_type or '-' }}</td>
+      <td class="muted" style="font-size:.82rem">{{ (f.response or '-')[:80] }}</td>
+      <td class="muted" style="font-size:.8rem">{{ f.created_at or '' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <div style="margin-top:10px"><a href="{{ url_for('whatsapp_logs') }}" class="btn ghost">📋 سجل الرسائل الكامل</a></div>
+  {% else %}
+  <div class="empty"><div class="big">✅</div>لا توجد رسائل فاشلة.</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}درجات ورقية{% endblock %}
+{% block heading %}إدخال درجات امتحان ورقي{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <h3>{{ ex.title }} <span class="badge gray">ورقي</span></h3>
+      <p class="muted">اكتب درجة كل طالب، ثم احفظ. بعدها تقدر تبعت النتائج على الواتساب.</p>
+    </div>
+    <a href="{{ url_for('exams') }}" class="btn ghost">← رجوع</a>
+  </div>
+</div>
+
+<form method="post">
+<div class="card">
+  <div class="field" style="max-width:260px">
+    <label>الدرجة الكلية للامتحان *</label>
+    <input name="total_marks" type="number" step="any" value="{{ '%g'|format(ex.total_marks) if ex.total_marks else '' }}" required placeholder="مثال: 50">
+  </div>
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>الدرجة</th></tr>
+    {% for s in students %}
+    <tr>
+      <td><b>{{ s.name }}</b></td>
+      <td><input name="score_{{ s.id }}" type="number" step="any" style="width:130px"
+                 value="{{ '%g'|format(existing[s.id]) if s.id in existing else '' }}"
+                 placeholder="—"></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% if not students %}<div class="empty"><div class="big">👥</div>لا يوجد طلاب في هذه المجموعة.</div>{% endif %}
+  <button class="btn green" type="submit" style="margin-top:16px">💾 حفظ الدرجات</button>
+</div>
+</form>
+{% endblock %}

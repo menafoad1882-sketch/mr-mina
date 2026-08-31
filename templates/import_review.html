@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}مراجعة الأسئلة المستوردة{% endblock %}
+{% block heading %}📥 مراجعة الأسئلة المستوردة من Word{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+    <div>
+      <b>تم العثور على <span id="qCount">{{ draft.questions|length }}</span> سؤالًا</b>
+      <p class="muted" style="font-size:.85rem">الملف: {{ draft.filename }} — راجع/عدّل الأسئلة ثم أضفها للامتحان «{{ ex.title }}».</p>
+    </div>
+    <div class="actions">
+      <a href="{{ url_for('exam_edit', eid=ex.id) }}" class="btn ghost">← رجوع</a>
+      <button class="btn green" onclick="commit()">✅ إضافة إلى الامتحان</button>
+    </div>
+  </div>
+  <div id="msg" class="muted" style="font-size:.85rem;margin-top:8px"></div>
+</div>
+
+<div id="list"></div>
+
+{% block scripts %}
+<script>
+var QTYPES = {{ qtype_labels|tojson }};
+var LETTERS = {'a':'أ','b':'ب','c':'ج','d':'د'};
+var questions = {{ draft.questions|tojson }};
+
+function typeOptions(sel){
+  return Object.keys(QTYPES).map(function(k){
+    return '<option value="'+k+'"'+(k===sel?' selected':'')+'>'+QTYPES[k]+'</option>';
+  }).join('');
+}
+function el(html){var d=document.createElement('div');d.innerHTML=html;return d.firstElementChild;}
+
+function render(){
+  var list=document.getElementById('list'); list.innerHTML='';
+  questions.forEach(function(q,i){
+    q.type=q.type||'mcq'; q.marks=q.marks||1;
+    var box=document.createElement('div'); box.className='card';
+    var head='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">'+
+      '<b>سؤال '+(i+1)+'</b><span style="display:flex;gap:6px;flex-wrap:wrap">'+
+      '<button class="btn sm ghost" onclick="mv('+i+',-1)">↑</button>'+
+      '<button class="btn sm ghost" onclick="mv('+i+',1)">↓</button>'+
+      '<button class="btn sm red" onclick="del('+i+')">حذف</button></span></div>';
+    box.innerHTML=head;
+    var meta=document.createElement('div'); meta.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
+    meta.innerHTML='<label style="font-size:.82rem">النوع: <select onchange="setF('+i+',\'type\',this.value);render()">'+typeOptions(q.type)+'</select></label>'+
+      '<label style="font-size:.82rem">الدرجة: <input type="number" step="any" min="0" value="'+q.marks+'" style="width:70px" oninput="setF('+i+',\'marks\',parseFloat(this.value)||0)"></label>';
+    box.appendChild(meta);
+    var txt=el('<div class="field"><label>نص السؤال</label><textarea rows="2"></textarea></div>');
+    var ta=txt.querySelector('textarea'); ta.value=q.text||''; ta.oninput=function(){setF(i,'text',this.value);};
+    box.appendChild(txt);
+    if(q.type==='mcq'){
+      ['a','b','c','d'].forEach(function(L){
+        var f=el('<div style="display:flex;align-items:center;gap:8px;margin:4px 0">'+
+          '<input type="radio" name="c'+i+'" '+((q.correct||'a')===L?'checked':'')+'>'+
+          '<span>'+LETTERS[L]+')</span><input style="flex:1"></div>');
+        f.querySelector('input[type=radio]').onchange=function(){setF(i,'correct',L);};
+        var ti=f.querySelector('input[style]'); ti.value=q['option_'+L]||''; ti.oninput=function(){setF(i,'option_'+L,this.value);};
+        box.appendChild(f);
+      });
+    } else if(q.type==='truefalse'){
+      var tf=el('<div class="field"><label>الإجابة الصحيحة</label><select><option value="a">صح</option><option value="b">خطأ</option></select></div>');
+      tf.querySelector('select').value=q.correct||'a';
+      tf.querySelector('select').onchange=function(){setF(i,'correct',this.value);};
+      box.appendChild(tf);
+    } else {
+      var lbl = q.type==='complete' ? 'الإجابة الصحيحة (تصحيح تلقائي)' : 'الإجابة النموذجية (تصحيح المدرس)';
+      var an=el('<div class="field"><label>'+lbl+'</label><textarea rows="2"></textarea></div>');
+      var at=an.querySelector('textarea'); at.value=q.answer_text||''; at.oninput=function(){setF(i,'answer_text',this.value);};
+      box.appendChild(an);
+    }
+    list.appendChild(box);
+  });
+  document.getElementById('qCount').textContent=questions.length;
+}
+function setF(i,f,v){questions[i][f]=v;}
+function del(i){if(!confirm('حذف السؤال؟'))return;questions.splice(i,1);render();}
+function mv(i,d){var j=i+d;if(j<0||j>=questions.length)return;var t=questions[i];questions[i]=questions[j];questions[j]=t;render();}
+function commit(){
+  var msg=document.getElementById('msg'); msg.textContent='جارٍ الإضافة...';
+  fetch('{{ url_for("exam_import_commit", eid=ex.id) }}',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({questions:questions})}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){ window.location='{{ url_for("exam_edit", eid=ex.id) }}'; }
+    else { msg.textContent='⚠️ '+(d.error||'فشل الحفظ'); }
+  }).catch(function(){ msg.textContent='⚠️ تعذّر الاتصال'; });
+}
+render();
+</script>
+{% endblock %}
+{% endblock %}
