@@ -1,0 +1,26 @@
+# قاعدة البيانات المحلية (لا تُرفع - تحتوي بيانات الطلاب)
+teacher.db
+*.db
+
+# ملفات بايثون
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ملفات النظام
+.DS_Store
+Thumbs.db
+
+# ملفات مؤقتة
+*.log
+/tmp/
+preview_*
+test_app.py
+
+# أسرار (لا ترفعها أبدًا)
+.env
+secrets.txt
+teacher.db-*

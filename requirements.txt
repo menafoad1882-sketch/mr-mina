@@ -1,0 +1,9 @@
+Flask>=3.0
+openpyxl>=3.1
+qrcode[pil]>=7.4
+psycopg[binary]>=3.1
+gunicorn>=21.2
+# قراءة/كتابة ملفات Word (.docx): استيراد الأسئلة + تصدير الامتحان الورقي
+python-docx>=1.1
+# عميل Supabase للنسخ الاحتياطي التلقائي (اختياري وقت التشغيل)
+supabase>=2.0

@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": [
+          "templates/**",
+          "app.py",
+          "database.py",
+          "dbcore.py",
+          "whatsapp_helper.py",
+          "supabase_sync.py",
+          "exam_ai.py",
+          "excel_helper.py",
+          "docx_helper.py"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "api/index.py" }
+  ]
+}

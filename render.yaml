@@ -1,0 +1,46 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  إعداد النشر التلقائي على Render.com  (Blueprint)
+#  الطريقة: render.com > New > Blueprint > اربط مستودع GitHub > هيقرأ الملف ده
+# ═══════════════════════════════════════════════════════════════════════
+#
+#  ⚠️ مهم جدًا (الخطة المجانية Free):
+#     - الخطة المجانية لا تدعم الأقراص الدائمة (Persistent Disk).
+#     - لذلك نخزّن البيانات في Supabase/Postgres عبر متغير DATABASE_URL.
+#     - من غير DATABASE_URL البيانات هتتمسح مع كل إعادة تشغيل/نشر.
+#
+#  ✅ قبل النشر: من لوحة Render > Environment، ضيف المتغير:
+#       DATABASE_URL = رابط Supabase (Connection Pooling / Transaction, port 6543)
+#     (خليناه sync:false تحت عشان تدخله يدويًا وما يتخزنش في Git)
+#
+#  ملاحظة: نستخدم runtime: docker ليتم تثبيت Tesseract OCR + اللغة العربية
+#  تلقائيًا (عبر Dockerfile) فيعمل استخراج نص الـ PDF الممسوح صوريًا في الإنتاج.
+services:
+  - type: web
+    name: teacher-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /login
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true          # يولّد مفتاح تأمين عشوائي آمن تلقائيًا
+      - key: FLASK_ENV
+        value: production
+      - key: TESSERACT_CMD
+        value: /usr/bin/tesseract    # مسار محرّك OCR داخل الحاوية
+      - key: DATABASE_URL
+        sync: false                  # أدخله يدويًا من لوحة Render (رابط Supabase)
+
+# ═══════════════════════════════════════════════════════════════════════
+#  🔁 بديل: لو مشترك في خطة مدفوعة (Starter+) وعايز SQLite على قرص دائم
+#  بدل Supabase — احذف متغير DATABASE_URL فوق، وفعّل الكتلة دي:
+#
+#    plan: starter
+#    envVars:
+#      - key: DATA_DIR
+#        value: /var/data
+#    disk:
+#      name: teacher-data
+#      mountPath: /var/data
+#      sizeGB: 1
+# ═══════════════════════════════════════════════════════════════════════

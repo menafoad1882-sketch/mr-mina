@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.db
+*.db-*
+teacher.db*
+.git/
+.gitignore
+preview_*.html
+test_*.py
+*.log
+.venv/
+venv/
+.env
