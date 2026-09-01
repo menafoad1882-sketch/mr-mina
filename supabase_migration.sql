@@ -90,6 +90,8 @@ alter table attendance add column if not exists status text;
 alter table attendance add column if not exists homework text;
 alter table attendance add column if not exists paid bigint;
 alter table attendance add column if not exists amount real;
+alter table attendance add column if not exists fee_exempt bigint;
+alter table attendance add column if not exists exempt_reason text;
 alter table attendance add column if not exists created_at text;
 -- exams
 alter table exams add column if not exists title text;

@@ -589,17 +589,33 @@ def restore_all():
                 drop_id = True  # نترك القاعدة المحلية تولّد id بنفسها
             else:
                 key_cols = _KEY_COLUMNS.get(table, ["id"])
+            has_id = "id" in allowed
             for row in res.data:
                 # أبقِ فقط الأعمدة المعروفة محليًا (يتجاهل system_prompt وأي عمود قديم)
                 filtered = {k: v for k, v in row.items() if k in allowed}
-                if drop_id:
+                # مفتاح المطابقة لهذا الصف: افتراضيًا المفتاح الطبيعي/العام.
+                row_key = key_cols
+                row_drop_id = drop_id
+                # حالة خاصة: صف بمفتاح طبيعي فيه قيمة NULL (مثال: سجل مالي لطالب محذوف
+                # حيث student_id=NULL). المطابقة على NULL لا تعمل في SQL (NULL=NULL غير
+                # صحيح) فتتكرّر الصفوف. الحل: نطابق هذا الصف بـ id الثابت (نُبقيه)،
+                # فيبقى الاسترجاع idempotent ولا يُنشئ نسخًا مكررة للسجل المالي.
+                if drop_id and any(filtered.get(c) is None for c in key_cols):
+                    if has_id and row.get("id") is not None:
+                        row_key = ["id"]
+                        row_drop_id = False
+                    else:
+                        continue  # لا id ولا مفتاح طبيعي كامل — نتخطّى بأمان (نادر)
+                if row_drop_id:
                     filtered.pop("id", None)  # لا نفرض id الوارد على المفتاح الطبيعي
+                elif has_id and row.get("id") is not None:
+                    filtered["id"] = row["id"]  # ثبّت id للمطابقة/الإدراج
                 if not filtered:
                     continue
                 # لا بد من توفّر مفتاح المطابقة كاملًا لتحديد السجل بدقة
-                if not all(k in filtered for k in key_cols):
+                if not all(k in filtered for k in row_key):
                     continue
-                if _upsert_row(conn, table, filtered, key_cols):
+                if _upsert_row(conn, table, filtered, row_key):
                     total += 1
             # على Postgres: بعد إدراج معرّفات id صريحة، لا بد من مزامنة تسلسل الـ id
             # وإلا يصطدم أول إدراج جديد بمفتاح مكرر. (لا يلزم عندما أسقطنا id لأن

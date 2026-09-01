@@ -1279,6 +1279,7 @@ def group_history(gid):
     for s in sessions:
         running += s["collected"]
         rows.append({"date": s["date"], "title": s["title"] or "-",
+                     "notes": s["notes"] if "notes" in s.keys() else "",
                      "attended": s["attended"], "collected": s["collected"],
                      "running": running, "id": s["id"]})
     total = running
@@ -1575,22 +1576,49 @@ def permanent_delete_student(sid):
         conn.close()
         flash("لم يتم الحذف: اسم التأكيد غير مطابق.", "error")
         return redirect(url_for("student_profile", sid=sid))
-    # احفظ لقطة الاسم في السجلات المالية قبل الحذف (لضمان بقائها في التقارير)
+    # ═══════════════════════════════════════════════════════════════════
+    # حذف الملف الشخصي مع الحفاظ التام على السجل المالي/التاريخي.
+    # ═══════════════════════════════════════════════════════════════════
+    # السبب الجذري لخطر فقد المال: قواعد قديمة أُنشئت قبل تصحيح المخطط قد يكون بها
+    # قيد attendance/booklets بـ ON DELETE CASCADE، فيحذف حذفُ الطالب سجلاته المالية.
+    # SQLite لا يعدّل قيود المفاتيح الأجنبية بالترحيل. الحل الحاسم المستقل عن تعريف
+    # القيد وعن نوع القاعدة: (1) نحفظ لقطة الاسم/المجموعة على السجلات المالية،
+    # (2) نفصلها عن الطالب صراحةً (student_id=NULL) فلا يطالها أي حذف تعاقبي،
+    # (3) نحذف يدويًا السجلات غير المالية فقط، (4) ثم نحذف الطالب.
+    name = (st["name"] or "").strip()
+
+    # (1) لقطة الاسم/المجموعة على السجلات المالية (تبقى ظاهرة في التقارير)
     conn.execute(
         "UPDATE attendance SET student_name_snapshot=COALESCE(student_name_snapshot,?) "
-        "WHERE student_id=?", (st["name"], sid))
+        "WHERE student_id=?", (name, sid))
     conn.execute(
         "UPDATE attendance SET group_name_snapshot=COALESCE(group_name_snapshot, "
         "(SELECT name FROM groups WHERE id=attendance.group_id)) WHERE student_id=?", (sid,))
     conn.execute(
         "UPDATE booklets SET student_name_snapshot=COALESCE(student_name_snapshot,?) "
-        "WHERE student_id=?", (st["name"], sid))
-    # حذف الطالب: السجلات المالية والتاريخية (attendance/booklets) لها ON DELETE SET NULL
-    # فتبقى كسجل تاريخي بلقطة الاسم، ولا تُحذف مع الطالب.
+        "WHERE student_id=?", (name, sid))
+
+    # (2) افصل السجلات المالية عن الطالب صراحةً — تبقى كسجل تاريخي بلقطة الاسم،
+    #     ولا يمسّها حذف الطالب مهما كان تعريف قيد المفتاح الأجنبي (قديمًا كان CASCADE).
+    conn.execute("UPDATE attendance SET student_id=NULL WHERE student_id=?", (sid,))
+    conn.execute("UPDATE booklets SET student_id=NULL WHERE student_id=?", (sid,))
+
+    # (3) احذف يدويًا السجلات غير المالية فقط (ملف/تسجيل/امتحانات/تذكيرات/روابط ولي أمر)
+    #     — لا نعتمد على ON DELETE CASCADE (قد يكون غائبًا/مختلفًا في قواعد قديمة).
+    #     حذف تذكيرات الدفع مقصود: لا نُظهر متأخّرات وهمية لطالب لم يعد موجودًا (البند 4).
+    for tbl in ("enrollments", "group_transfers", "results", "exam_attempts",
+                "reminders", "parent_students", "absence_alerts"):
+        try:
+            conn.execute(f"DELETE FROM {tbl} WHERE student_id=?", (sid,))
+        except Exception:
+            conn.rollback()  # جدول غير موجود في قاعدة قديمة — تجاهل بأمان
+
+    # (4) احذف الملف الشخصي للطالب
     conn.execute("DELETE FROM students WHERE id=?", (sid,))
     conn.commit()
     conn.close()
-    flash(f"تم حذف بيانات الطالب «{st['name']}» مع الاحتفاظ بسجلّاته المالية في التقارير.", "success")
+    flash(f"تم حذف بيانات الطالب «{name}» مع الاحتفاظ بسجلّاته المالية في التقارير.",
+          "success")
     return redirect(url_for("students"))
 
 
@@ -2154,11 +2182,16 @@ def toggle_parent(pid):
 @app.route("/parents/<int:pid>/delete")
 @login_required
 def delete_parent(pid):
+    # حذف حساب بوابة ولي الأمر فقط — لا يمسّ الطلاب ولا بياناتهم المالية/الأكاديمية.
+    # نفصل روابط الأبناء صراحةً (بدل الاعتماد على ON DELETE CASCADE) ثم نحذف الحساب،
+    # فيبقى كل طالب وسجلّه المالي والحضور والامتحانات كما هو (البند 6).
     conn = db.get_db()
+    conn.execute("DELETE FROM parent_students WHERE parent_id=?", (pid,))
     conn.execute("DELETE FROM parents WHERE id=?", (pid,))
     conn.commit()
     conn.close()
-    flash("تم حذف حساب ولي الأمر", "success")
+    flash("تم حذف حساب بوابة ولي الأمر فقط — الطلاب وبياناتهم المالية والأكاديمية محفوظة.",
+          "success")
     return redirect(url_for("parents"))
 
 
@@ -2305,8 +2338,33 @@ def session_detail(sid):
     if extra:
         studs = list(studs) + list(extra)
     conn.close()
+    # قائمة أسباب الإعفاء الجاهزة (تظهر للمدرس فقط)
+    exempt_reasons = ["منحة", "أخو/أخت طالب", "قرار إداري", "سبب خاص"]
     return render_template("session_detail.html", se=se, students=studs,
-                           existing=existing, status_ar=STATUS_AR)
+                           existing=existing, status_ar=STATUS_AR,
+                           exempt_reasons=exempt_reasons)
+
+
+@app.route("/sessions/<int:sid>/notes", methods=["POST"])
+@login_required
+def save_session_notes(sid):
+    """حفظ/تعديل ملاحظات الحصة (منفصلة لكل حصة، تُخزَّن دائمًا في قاعدة البيانات).
+
+    ملاحظات كل حصة مستقلة تمامًا (على مستوى الحصة وليس المجموعة) وتظهر عند إعادة
+    فتح الحصة وفي سجلّ الحصص والتقارير. قابلة للتعديل ما لم يكن العام مقفولًا للعرض.
+    """
+    if is_browsing_old_year():
+        return jsonify({"ok": False, "error": "عام سابق (عرض فقط)"}), 403
+    conn = db.get_db()
+    se = conn.execute("SELECT id FROM sessions WHERE id=?", (sid,)).fetchone()
+    if not se:
+        conn.close()
+        return jsonify({"ok": False, "error": "الحصة غير موجودة"}), 404
+    notes = (request.get_json() or {}).get("notes", "")
+    conn.execute("UPDATE sessions SET notes=? WHERE id=?", (notes, sid))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 def _check_absence_alerts(conn, student_ids, year_id):
@@ -2391,12 +2449,17 @@ def save_attendance(sid):
         homework = item.get("homework", "none")
         if homework not in HW_STATUSES:
             homework = "none"
+        # إعفاء الطالب من رسوم هذه الحصة (غير مطالَب بالدفع)
+        fee_exempt = 1 if item.get("fee_exempt") else 0
+        exempt_reason = (item.get("exempt_reason") or "").strip() if fee_exempt else ""
         paid = 1 if item.get("paid") else 0
         amount = float(item.get("amount") or 0)
         if paid and amount == 0:
             amount = fee
         if not paid:
             amount = 0
+        # المعفى غير مطالَب بالدفع: لا نحتسب له مبلغًا مستحقًا (لكن نُبقي أي مبلغ
+        # سجّله المدرس فعليًا كتحصيل استثنائي — لا نمسّ سجلات الدفع التاريخية).
         # المجموعة وقت التسجيل = مجموعة الطالب في تسجيل هذا العام (سجل تاريخي)
         enr = conn.execute(
             "SELECT group_id FROM enrollments WHERE student_id=? AND year_id=?",
@@ -2409,20 +2472,23 @@ def save_attendance(sid):
         gname = grow["name"] if grow else None
         conn.execute(
             "INSERT INTO attendance(session_id,student_id,group_id,student_name_snapshot,"
-            "group_name_snapshot,status,homework,paid,amount,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?) "
+            "group_name_snapshot,status,homework,paid,amount,fee_exempt,exempt_reason,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(session_id,student_id) DO UPDATE SET "
             "group_id=excluded.group_id, student_name_snapshot=excluded.student_name_snapshot, "
             "group_name_snapshot=excluded.group_name_snapshot, status=excluded.status, "
-            "homework=excluded.homework, paid=excluded.paid, amount=excluded.amount",
-            (sid, st_id, grp_id, sname, gname, status, homework, paid, amount, db.now()))
+            "homework=excluded.homework, paid=excluded.paid, amount=excluded.amount, "
+            "fee_exempt=excluded.fee_exempt, exempt_reason=excluded.exempt_reason",
+            (sid, st_id, grp_id, sname, gname, status, homework, paid, amount,
+             fee_exempt, exempt_reason, db.now()))
 
-        # تذكير المتأخرات: لو الطالب حاضر ودفع أقل من سعر الحصة
-        if status in ("present", "late") and fee > 0:
+        # تذكير المتأخرات: لو الطالب حاضر ودفع أقل من سعر الحصة.
+        # المعفى من الرسوم لا يُنشأ له تذكير إطلاقًا (غير مطالَب بالدفع) — ونمسح أي
+        # تذكير سابق له لنفس الحصة حتى لا يظهر في التذكيرات/غير المدفوع.
+        conn.execute("DELETE FROM reminders WHERE student_id=? AND session_id=? "
+                     "AND status='pending'", (st_id, sid))
+        if status in ("present", "late") and fee > 0 and not fee_exempt:
             remaining = round(fee - amount, 2)
-            # امسح أي تذكير سابق لنفس الحصة والطالب (تفادي التكرار عند إعادة الحفظ)
-            conn.execute("DELETE FROM reminders WHERE student_id=? AND session_id=? "
-                         "AND status='pending'", (st_id, sid))
             if remaining > 0:
                 due = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
                 conn.execute(
@@ -4535,12 +4601,38 @@ def build_report(start_date, end_date, label=None, year_id=None):
     by_group = defaultdict(float)
     for s in sessions:
         by_group[s["group_name"] or "بدون مجموعة"] += s["income"]
-    # اسم الطالب: من جدول الطلاب إن وُجد، وإلا من لقطة الاسم المحفوظة (طالب محذوف)
+    # اسم الطالب: من جدول الطلاب إن وُجد، وإلا من لقطة الاسم المحفوظة (طالب محذوف).
+    # is_deleted=1 عندما لا يوجد سجل طالب مطابق (تم حذف ملفه) لكن السجل المالي باقٍ.
+    # غير المدفوع: يستبعد المعفيين من الرسوم (fee_exempt=1) — غير مطالَبين بالدفع.
     unpaid = conn.execute(
         "SELECT COALESCE(s.name, a.student_name_snapshot, 'طالب محذوف') AS name, "
+        "CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS is_deleted, "
         "se.date, se.fee FROM attendance a "
         "LEFT JOIN students s ON a.student_id=s.id JOIN sessions se ON a.session_id=se.id "
-        "WHERE a.paid=0 AND a.status IN ('present','late') "
+        "WHERE a.paid=0 AND (a.fee_exempt IS NULL OR a.fee_exempt=0) "
+        "AND a.status IN ('present','late') "
+        "AND se.year_id=? AND se.date>=? AND se.date<=? "
+        "ORDER BY se.date", (year_id, start_date, end_date)).fetchall()
+    # المعفَون من الرسوم (للعرض المنفصل في التقرير المالي — لا يُحسبون غير مدفوع)
+    exempt = conn.execute(
+        "SELECT COALESCE(s.name, a.student_name_snapshot, 'طالب محذوف') AS name, "
+        "CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS is_deleted, "
+        "se.date, a.exempt_reason FROM attendance a "
+        "LEFT JOIN students s ON a.student_id=s.id JOIN sessions se ON a.session_id=se.id "
+        "WHERE a.fee_exempt=1 AND a.status IN ('present','late') "
+        "AND se.year_id=? AND se.date>=? AND se.date<=? "
+        "ORDER BY se.date", (year_id, start_date, end_date)).fetchall()
+    # سجل المدفوعات (كل دفعة فعلية) — يشمل مدفوعات الطلاب المحذوفين بلقطة الاسم،
+    # ليبقى «الحساب المالي» ظاهرًا في التقرير بعد حذف الملف الشخصي (البنود 1،4،9).
+    paid = conn.execute(
+        "SELECT COALESCE(s.name, a.student_name_snapshot, 'طالب محذوف') AS name, "
+        "CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS is_deleted, "
+        "COALESCE(g.name, a.group_name_snapshot) AS group_name, "
+        "se.date, a.amount FROM attendance a "
+        "LEFT JOIN students s ON a.student_id=s.id "
+        "LEFT JOIN groups g ON a.group_id=g.id "
+        "JOIN sessions se ON a.session_id=se.id "
+        "WHERE a.paid=1 AND a.amount>0 "
         "AND se.year_id=? AND se.date>=? AND se.date<=? "
         "ORDER BY se.date", (year_id, start_date, end_date)).fetchall()
     conn.close()
@@ -4548,7 +4640,9 @@ def build_report(start_date, end_date, label=None, year_id=None):
         label = f"{start_date} إلى {end_date}"
     return {"start_date": start_date, "end_date": end_date, "label": label,
             "sessions": sessions, "total": total,
-            "by_group": dict(by_group), "unpaid": unpaid}
+            "by_group": dict(by_group), "unpaid": [dict(r) for r in unpaid],
+            "exempt": [dict(r) for r in exempt],
+            "paid": [dict(r) for r in paid]}
 
 
 def build_month_report(month):

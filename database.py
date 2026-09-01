@@ -178,6 +178,8 @@ def init_db():
         homework TEXT DEFAULT 'none', -- done / not_done / none
         paid INTEGER DEFAULT 0,
         amount REAL DEFAULT 0,
+        fee_exempt INTEGER DEFAULT 0, -- 1 = معفى من رسوم هذه الحصة (غير مطالَب بالدفع)
+        exempt_reason TEXT,           -- سبب الإعفاء (يظهر للمدرس فقط)
         created_at TEXT,
         UNIQUE(session_id, student_id),
         FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
@@ -514,6 +516,11 @@ EXPECTED_COLUMNS = {
                    "group_name_snapshot": "TEXT",
                    "status": "TEXT", "homework": "TEXT DEFAULT 'none'",
                    "paid": "INTEGER DEFAULT 0", "amount": "REAL DEFAULT 0",
+                   # إعفاء الطالب من رسوم هذه الحصة (على مستوى الحصة/العام تلقائيًا).
+                   # fee_exempt=1 يعني «غير مطالَب بالدفع» — لا يُنشأ تذكير ولا يُحتسب
+                   # ضمن غير المدفوع، ولا يُعتبر متبقيًا. لا يمسّ الحضور/الواجب/الامتحان.
+                   "fee_exempt": "INTEGER DEFAULT 0",
+                   "exempt_reason": "TEXT",
                    "created_at": "TEXT"},
     "exams": {"title": "TEXT", "group_id": "INTEGER", "year_id": "INTEGER",
               "total_marks": "REAL DEFAULT 0",

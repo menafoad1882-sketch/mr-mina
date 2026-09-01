@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS attendance (
     homework TEXT DEFAULT 'none',
     paid INTEGER DEFAULT 0,
     amount REAL DEFAULT 0,
+    fee_exempt INTEGER DEFAULT 0,
+    exempt_reason TEXT,
     created_at TEXT
 );
 
