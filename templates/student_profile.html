@@ -129,14 +129,15 @@
 <div class="card" style="border:1px solid var(--red)">
   <h3 style="color:var(--red)">⚠️ حذف دائم للطالب</h3>
   <p class="muted" style="font-size:.88rem">
-    الأفضل استخدام «تعطيل الطالب» للحفاظ على البيانات التاريخية.
-    الحذف الدائم يمسح الطالب وكل سجلّاته (الحضور، الدفعات، الدرجات، الكتب...) نهائيًا ولا يمكن التراجع عنه.
+    سيتم حذف بيانات الطالب الشخصية (الملف، التسجيل، حساب الامتحان، وربط بوابة ولي الأمر)،
+    <b>لكن ستظل جميع العمليات المالية والتاريخية محفوظة في التقارير</b> باسم الطالب
+    (سجل مالي محفوظ). للحفاظ على إمكانية إعادة التفعيل، استخدم «تعطيل الطالب» بدلًا من الحذف.
   </p>
   <details>
     <summary style="cursor:pointer;color:var(--red);font-weight:700">إظهار خيار الحذف الدائم</summary>
     <form method="post" action="{{ url_for('permanent_delete_student', sid=st.id) }}"
           style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"
-          onsubmit="return confirm('تأكيد نهائي: حذف الطالب وكل بياناته التاريخية نهائيًا؟')">
+          onsubmit="return confirm('سيتم حذف بيانات الطالب الشخصية، لكن ستظل جميع العمليات المالية والتاريخية محفوظة في التقارير. المتابعة؟')">
       <div class="field" style="margin:0">
         <label>اكتب اسم الطالب بالضبط للتأكيد: <b>{{ st.name }}</b></label>
         <input name="confirm_name" placeholder="{{ st.name }}" required style="width:240px">

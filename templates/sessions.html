@@ -15,7 +15,9 @@
     <tr>
       <td>{{ s.date }}</td>
       <td>{{ s.group_name or '-' }}</td>
-      <td>{{ s.title or '-' }}</td>
+      <td>{{ s.title or '-' }}
+        {% if s.notes %}<div class="muted" style="font-size:.78rem;margin-top:3px">📝 {{ s.notes }}</div>{% endif %}
+      </td>
       <td>{{ '%g'|format(s.fee) }} ج</td>
       <td><span class="pill">{{ s.marked }}</span></td>
       <td><b style="color:var(--green)">{{ '%g'|format(s.income) }} ج</b></td>

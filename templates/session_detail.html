@@ -16,6 +16,19 @@
   </div>
 </div>
 
+<!-- ملاحظات الحصة (مستقلة لكل حصة، تُحفظ في قاعدة البيانات وتظهر عند إعادة الفتح) -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <h3 style="margin:0">📝 ملاحظات الحصة</h3>
+    <span id="notesMsg" class="muted" style="font-size:.85rem"></span>
+  </div>
+  <p class="muted" style="font-size:.83rem;margin:6px 0 10px">اكتب ملاحظات خاصة بهذه الحصة (مثال: تم شرح الدرس ومراجعة الواجب). تبقى محفوظة لهذه الحصة تحديدًا.</p>
+  <textarea id="sessionNotes" rows="3" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-family:inherit;font-size:.95rem;resize:vertical">{{ se.notes or '' }}</textarea>
+  <div style="margin-top:10px">
+    <button type="button" class="btn green sm" onclick="saveNotes()">💾 حفظ الملاحظات</button>
+  </div>
+</div>
+
 <div class="card">
   <div class="toolbar">
     <button class="btn sm ghost" onclick="setAll('present')">✅ الكل حاضر</button>
@@ -28,11 +41,15 @@
   {% if students %}
   <div class="table-wrap">
   <table id="attTable">
-    <tr><th>الطالب</th><th>الحالة</th><th>الواجب</th><th>دفع؟</th><th>المبلغ</th></tr>
+    <tr><th>الطالب</th><th>الحالة</th><th>الواجب</th><th>الرسوم</th><th>دفع؟</th><th>المبلغ</th></tr>
     {% for s in students %}
     {% set ex = existing.get(s.id) %}
-    <tr data-sid="{{ s.id }}">
-      <td><b>{{ s.name }}</b></td>
+    <tr data-sid="{{ s.id }}" data-exempt="{{ '1' if ex and ex.fee_exempt else '0' }}">
+      <td><b>{{ s.name }}</b>
+        <div class="exempt-badge" style="margin-top:4px;{{ 'display:none' if not (ex and ex.fee_exempt) }}">
+          <span class="pill" style="background:#e0e7ff;color:#3730a3;font-size:.72rem">🎗️ معفى من الرسوم</span>
+        </div>
+      </td>
       <td>
         <div class="status-btns" style="display:flex;gap:5px">
           <button type="button" class="st-btn {{ 'act-present' if ex and ex.status=='present' }}" data-st="present" onclick="pick(this,'present')">حاضر</button>
@@ -48,6 +65,22 @@
           <button type="button" class="hw-btn {{ 'act-not' if ex and ex.homework=='not_done' }}" data-hw="not_done" onclick="pickHw(this,'not_done')">❌ لم يعمله</button>
         </div>
         <input type="hidden" class="hw-val" value="{{ ex.homework if ex else 'none' }}">
+      </td>
+      <td>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.8rem;cursor:pointer">
+          <input type="checkbox" class="exempt-chk" style="width:18px;height:18px"
+                 {{ 'checked' if ex and ex.fee_exempt }} onchange="toggleExempt(this)">
+          <span>معفى</span>
+        </label>
+        <select class="exempt-reason" style="margin-top:4px;font-size:.75rem;padding:2px;max-width:120px;{{ '' if ex and ex.fee_exempt else 'display:none' }}">
+          <option value="">— سبب الإعفاء —</option>
+          {% for r in exempt_reasons %}
+          <option value="{{ r }}" {{ 'selected' if ex and ex.exempt_reason==r }}>{{ r }}</option>
+          {% endfor %}
+          <option value="__other__" {{ 'selected' if ex and ex.exempt_reason and ex.exempt_reason not in exempt_reasons }}>أخرى...</option>
+        </select>
+        <input type="text" class="exempt-other" placeholder="اكتب السبب" style="margin-top:4px;font-size:.75rem;padding:2px;max-width:120px;{{ '' if ex and ex.exempt_reason and ex.exempt_reason not in exempt_reasons else 'display:none' }}"
+               value="{{ ex.exempt_reason if ex and ex.exempt_reason and ex.exempt_reason not in exempt_reasons else '' }}">
       </td>
       <td><input type="checkbox" class="paid-chk" style="width:22px;height:22px"
                  {{ 'checked' if ex and ex.paid }} onchange="recalc()"></td>
@@ -83,6 +116,42 @@
 {% block scripts %}
 <script>
 const FEE = {{ se.fee }};
+function saveNotes(){
+  const notes=document.getElementById('sessionNotes').value;
+  const msg=document.getElementById('notesMsg');
+  msg.textContent='جارٍ الحفظ...';
+  fetch('{{ url_for("save_session_notes", sid=se.id) }}',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({notes})
+  }).then(r=>r.json()).then(d=>{
+    msg.textContent = d.ok ? '✅ حُفظت الملاحظات' : ('❌ '+(d.error||'فشل الحفظ'));
+    if(d.ok) setTimeout(()=>msg.textContent='',3000);
+  }).catch(()=>{ msg.textContent='❌ تعذّر الحفظ'; });
+}
+function toggleExempt(chk){
+  const row=chk.closest('tr');
+  const on=chk.checked;
+  row.dataset.exempt = on ? '1' : '0';
+  row.querySelector('.exempt-reason').style.display = on ? '' : 'none';
+  const badge=row.querySelector('.exempt-badge'); if(badge) badge.style.display = on ? '' : 'none';
+  if(!on){ row.querySelector('.exempt-other').style.display='none'; }
+  else { onReasonChange(row.querySelector('.exempt-reason')); }
+  recalc();
+}
+function onReasonChange(sel){
+  const row=sel.closest('tr');
+  const other=row.querySelector('.exempt-other');
+  other.style.display = (sel.value==='__other__') ? '' : 'none';
+}
+document.addEventListener('change',function(e){
+  if(e.target && e.target.classList.contains('exempt-reason')) onReasonChange(e.target);
+});
+function _reasonOf(row){
+  const sel=row.querySelector('.exempt-reason');
+  if(!sel) return '';
+  if(sel.value==='__other__') return (row.querySelector('.exempt-other').value||'').trim();
+  return sel.value;
+}
 function pick(btn,st){
   const cell = btn.closest('td');
   cell.querySelectorAll('.st-btn').forEach(b=>b.className='st-btn');
@@ -129,12 +198,15 @@ function recalc(){
 function save(){
   const records=[];
   document.querySelectorAll('#attTable tr[data-sid]').forEach(row=>{
+    const exempt = row.querySelector('.exempt-chk').checked;
     records.push({
       student_id: parseInt(row.dataset.sid),
       status: row.querySelector('.status-val').value,
       homework: row.querySelector('.hw-val').value,
       paid: row.querySelector('.paid-chk').checked,
-      amount: parseFloat(row.querySelector('.amount-val').value||0)
+      amount: parseFloat(row.querySelector('.amount-val').value||0),
+      fee_exempt: exempt ? 1 : 0,
+      exempt_reason: exempt ? _reasonOf(row) : ''
     });
   });
   fetch('{{ url_for("save_attendance", sid=se.id) }}',{

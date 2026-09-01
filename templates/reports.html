@@ -35,6 +35,7 @@
   <div class="stat green"><div class="num">{{ '%g'|format(total) }} ج</div><div class="lbl">💰 إجمالي الدخل في الفترة</div></div>
   <div class="stat"><div class="num">{{ sessions|length }}</div><div class="lbl">📅 عدد الحصص</div></div>
   <div class="stat amber"><div class="num">{{ unpaid|length }}</div><div class="lbl">⚠️ متأخرين في الدفع</div></div>
+  <div class="stat"><div class="num">{{ (exempt or [])|length }}</div><div class="lbl">🎗️ معفَون من الرسوم</div></div>
 </div>
 
 <div class="card">
@@ -74,14 +75,50 @@
   {% else %}<p class="muted">لا توجد حصص في هذه الفترة.</p>{% endif %}
 </div>
 
+{% if paid %}
+<div class="card">
+  <h3>💵 سجل المدفوعات في الفترة</h3>
+  <p class="muted" style="font-size:.82rem;margin:0 0 8px">يشمل مدفوعات الطلاب المحذوفين (السجل المالي محفوظ باسم الطالب).</p>
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>المجموعة</th><th>تاريخ الحصة</th><th>المبلغ المدفوع</th></tr>
+    {% for p in paid %}
+    <tr>
+      <td>{{ p.name }}{% if p.is_deleted %} <span class="pill" style="background:#fee2e2;color:#b91c1c;font-size:.7rem">طالب محذوف – سجل مالي محفوظ</span>{% endif %}</td>
+      <td>{{ p.group_name or '-' }}</td>
+      <td>{{ p.date }}</td>
+      <td><b style="color:var(--green)">{{ '%g'|format(p.amount) }} ج</b></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+
 {% if unpaid %}
 <div class="card">
   <h3>⚠️ طلاب متأخرين في الدفع</h3>
+  <p class="muted" style="font-size:.82rem;margin:0 0 8px">لا يشمل الطلاب المعفَين من الرسوم.</p>
   <div class="table-wrap">
   <table>
     <tr><th>الطالب</th><th>تاريخ الحصة</th><th>المبلغ المستحق</th></tr>
     {% for u in unpaid %}
-    <tr><td>{{ u.name }}</td><td>{{ u.date }}</td><td>{{ '%g'|format(u.fee) }} ج</td></tr>
+    <tr><td>{{ u.name }}{% if u.is_deleted %} <span class="pill" style="background:#fee2e2;color:#b91c1c;font-size:.7rem">طالب محذوف</span>{% endif %}</td><td>{{ u.date }}</td><td>{{ '%g'|format(u.fee) }} ج</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% if exempt %}
+<div class="card">
+  <h3>🎗️ طلاب معفَون من رسوم الحصة</h3>
+  <p class="muted" style="font-size:.82rem;margin:0 0 8px">هؤلاء غير مطالَبين بالدفع — لا يُحتسبون ضمن المتأخرين.</p>
+  <div class="table-wrap">
+  <table>
+    <tr><th>الطالب</th><th>تاريخ الحصة</th><th>سبب الإعفاء</th></tr>
+    {% for e in exempt %}
+    <tr><td>{{ e.name }}{% if e.is_deleted %} <span class="pill" style="background:#fee2e2;color:#b91c1c;font-size:.7rem">طالب محذوف</span>{% endif %}</td><td>{{ e.date }}</td><td>{{ e.exempt_reason or '—' }}</td></tr>
     {% endfor %}
   </table>
   </div>

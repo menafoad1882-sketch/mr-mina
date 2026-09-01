@@ -27,7 +27,9 @@
     <tr>
       <td>{{ loop.index }}</td>
       <td>{{ r.date }}</td>
-      <td>{{ r.title }}</td>
+      <td>{{ r.title }}
+        {% if r.notes %}<div class="muted" style="font-size:.78rem;margin-top:3px">📝 {{ r.notes }}</div>{% endif %}
+      </td>
       <td><span class="pill">{{ r.attended }}</span></td>
       <td><b style="color:var(--green)">{{ '%g'|format(r.collected) }} ج</b></td>
       <td><b>{{ '%g'|format(r.running) }} ج</b></td>
