@@ -500,50 +500,185 @@ def schema_check():
     return result
 
 
-def backup_all():
-    """رفع نسخة كاملة من كل الجداول للسحابة عبر upsert آمن (idempotent).
+# ═══════════════════════════════════════════════════════════════════════
+# تتبّع تقدّم النسخ الاحتياطي (يُقرأ من الواجهة عبر /supabase/backup-progress)
+# ═══════════════════════════════════════════════════════════════════════
+import threading as _threading
+import time as _time
 
-    الاعتماد على المفتاح (id لأغلب الجداول، وأعمدة مركّبة لجدول الربط)
-    يضمن تحديث السجلات الموجودة بدل إنشاء نسخ مكررة عند تكرار النسخ.
+_PROGRESS_LOCK = _threading.Lock()
+# الحالة المشتركة الحيّة لآخر عملية نسخ (للعرض اللحظي في الواجهة).
+_PROGRESS = {
+    "running": False, "phase": "idle", "message": "",
+    "table": "", "table_index": 0, "tables_total": 0,
+    "batch": 0, "batches": 0,
+    "table_done": 0, "table_rows": 0,
+    "overall_done": 0, "overall_total": 0,
+    "percent": 0, "tables": [], "error": "", "ok": None,
+    "started_at": 0, "updated_at": 0,
+}
+
+
+def _progress_reset(tables_total=0, overall_total=0):
+    with _PROGRESS_LOCK:
+        _PROGRESS.update({
+            "running": True, "phase": "preparing", "message": "جارٍ التحضير...",
+            "table": "", "table_index": 0, "tables_total": tables_total,
+            "batch": 0, "batches": 0, "table_done": 0, "table_rows": 0,
+            "overall_done": 0, "overall_total": overall_total,
+            "percent": 0, "tables": [], "error": "", "ok": None,
+            "started_at": _time.time(), "updated_at": _time.time(),
+        })
+
+
+def _progress_update(**kw):
+    with _PROGRESS_LOCK:
+        _PROGRESS.update(kw)
+        _PROGRESS["updated_at"] = _time.time()
+        tot = _PROGRESS.get("overall_total") or 0
+        done = _PROGRESS.get("overall_done") or 0
+        _PROGRESS["percent"] = int(done * 100 / tot) if tot else (100 if _PROGRESS.get("ok") else 0)
+
+
+def get_backup_progress():
+    """نسخة من حالة تقدّم النسخ الحالية (آمنة للقراءة من الواجهة)."""
+    with _PROGRESS_LOCK:
+        return dict(_PROGRESS)
+
+
+# أحجام الدفعات لكل جدول (السبب الجذري لخطأ statement timeout 57014):
+# رفع كل صفوف الجدول في upsert واحد يُنتج عبارة INSERT..ON CONFLICT ضخمة تتجاوز
+# مهلة Supabase. الحل: تقسيم الرفع إلى دفعات صغيرة. الجداول التي تحمل حقولًا كبيرة
+# (صور base64: question_bank.extra، الإعدادات، سجلات الواتساب) تأخذ دفعات أصغر.
+_DEFAULT_BATCH = 200
+_TABLE_BATCH = {
+    "question_bank": 25,   # extra = صور base64 كبيرة
+    "questions": 50,
+    "exams": 50,
+    "wa_logs": 100,
+    "settings": 50,        # قد تحوي صور شعارات/تخطيطات base64
+    "results": 100,
+    "exam_attempts": 100,
+    "attendance": 200,
+}
+
+
+def _batch_size(table):
+    return _TABLE_BATCH.get(table, _DEFAULT_BATCH)
+
+
+def backup_all(progress=True):
+    """رفع نسخة كاملة من كل الجداول للسحابة عبر upsert آمن على دفعات (idempotent).
+
+    السبب الجذري لخطأ «statement timeout» (57014): كان يُرفع كل صفوف الجدول في
+    طلب upsert واحد، فتتضخّم العبارة وتتجاوز مهلة Supabase. الحل: تقسيم الرفع إلى
+    دفعات صغيرة لكل جدول + تتبّع تقدّم مفصّل + استمرار آمن بين الدفعات.
+
+    الاعتماد على مفتاح التعارض الطبيعي (id لأغلب الجداول، وأعمدة مركّبة للبعض)
+    يضمن تحديث السجلات الموجودة بدل إنشاء نسخ مكررة عند تكرار النسخ أو إعادة دفعة.
     """
     client = _client()
     if not client:
         return False, "Supabase غير مفعّل أو غير مضبوط"
 
-    # تحقّق مسبق من المخطط قبل أي محاولة رفع (البند 7): لو ناقص قيد/عمود/جدول
-    # نوقف الآن ونعرض ما يجب إصلاحه بالضبط — بدل ظهور خطأ 42P10 مربك أثناء الرفع.
+    # (البند 13) تحقّق مسبق من المخطط قبل أي محاولة رفع: لو ناقص قيد/عمود/جدول
+    # نوقف الآن ونعرض ما يجب إصلاحه بالضبط — بدل ظهور خطأ 42P10/مخطط أثناء الرفع.
+    if progress:
+        _progress_reset()
+        _progress_update(phase="schema_check", message="جارٍ فحص توافق المخطط...")
     chk = schema_check()
     if chk.get("connected") and not chk.get("ok"):
-        return False, (
-            "توقّف الرفع قبل البدء: مخطط Supabase غير متوافق بعد.\n"
-            + chk.get("message", "")
-            + "\n\nحمّل «سكربت مزامنة Supabase» وشغّله في SQL Editor ثم أعد الفحص."
-        )
+        msg = ("توقّف الرفع قبل البدء: مخطط Supabase غير متوافق بعد.\n"
+               + chk.get("message", "")
+               + "\n\nحمّل «سكربت مزامنة Supabase» وشغّله في SQL Editor ثم أعد الفحص.")
+        if progress:
+            _progress_update(running=False, phase="error", ok=False, error=msg,
+                             message="توقّف: المخطط غير متوافق")
+        return False, msg
 
     conn = db.get_db()
     try:
-        total = 0
+        # (البند 4) أولًا: احسب عدد صفوف كل جدول لعرض تقدّم دقيق ومعرفة الحجم الكلي.
+        plan = []          # [(table, local_cols, row_count)]
+        overall_total = 0
         for table in TABLES:
             local_cols = _local_columns(conn, table)
             if not local_cols:
-                continue  # الجدول غير موجود محليًا
-            rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}").fetchall()]
-            if not rows:
                 continue
-            # ارفع فقط الأعمدة الموجودة في المخطط المحلي (نتجنّب أي عمود قديم)
-            rows = [{k: v for k, v in r.items() if k in local_cols or k == "id"}
-                    for r in rows]
+            cnt = conn.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
+            if cnt:
+                plan.append((table, local_cols, cnt))
+                overall_total += cnt
+        if progress:
+            _progress_reset(tables_total=len(plan), overall_total=overall_total)
+            _progress_update(phase="uploading", message="بدء الرفع...")
+
+        total = 0
+        for t_idx, (table, local_cols, cnt) in enumerate(plan, start=1):
             on_conflict = ",".join(_conflict_cols(table))
-            # upsert على أساس مفتاح التعارض الطبيعي: يحدّث الموجود ولا يكرّر.
-            # أي خطأ (بما فيه 42P10) يُرفع كما هو — لا نلتقطه ولا نخفيه.
-            client.table(table).upsert(rows, on_conflict=on_conflict).execute()
-            total += len(rows)
+            batch_size = _batch_size(table)
+            batches = (cnt + batch_size - 1) // batch_size
+            if progress:
+                _progress_update(table=table, table_index=t_idx, batch=0,
+                                 batches=batches, table_done=0, table_rows=cnt,
+                                 message=f"رفع جدول {table}...")
+            t_start = _time.time()
+            uploaded_here = 0
+            # قراءة ورفع على دفعات عبر LIMIT/OFFSET (ثابتة الترتيب بـ rowid/id).
+            order_col = "id" if "id" in local_cols else _conflict_cols(table)[0]
+            for b in range(batches):
+                offset = b * batch_size
+                rows = [dict(r) for r in conn.execute(
+                    f"SELECT * FROM {table} ORDER BY {order_col} "
+                    f"LIMIT {batch_size} OFFSET {offset}").fetchall()]
+                if not rows:
+                    continue
+                rows = [{k: v for k, v in r.items() if k in local_cols or k == "id"}
+                        for r in rows]
+                b_start = _time.time()
+                # (البنود 5،6) رفع الدفعة عبر upsert idempotent؛ أي خطأ يُرفع كما هو
+                # (بما فيه 57014/42P10) — لا نخفيه، مع بيان الجدول/الدفعة بالضبط.
+                try:
+                    client.table(table).upsert(rows, on_conflict=on_conflict).execute()
+                except Exception as be:
+                    dur = round(_time.time() - b_start, 2)
+                    lo, hi = offset + 1, offset + len(rows)
+                    detail = (f"❌ فشل رفع جدول «{table}» — الدفعة {b + 1}/{batches} "
+                              f"(السجلات {lo}–{hi}) بعد {dur}ث: {be}")
+                    print("[backup]", detail)
+                    if progress:
+                        _progress_update(running=False, phase="error", ok=False,
+                                         error=detail, message=detail)
+                    raise RuntimeError(detail) from be
+                dur = round(_time.time() - b_start, 2)
+                uploaded_here += len(rows)
+                total += len(rows)
+                print(f"[backup] {table}: دفعة {b + 1}/{batches} "
+                      f"({len(rows)} سجل) في {dur}ث")
+                if progress:
+                    _progress_update(batch=b + 1, table_done=uploaded_here,
+                                     overall_done=total,
+                                     message=f"رفع {table}: دفعة {b + 1}/{batches}")
+            t_dur = round(_time.time() - t_start, 2)
+            print(f"[backup] ✅ {table}: {uploaded_here}/{cnt} سجل في {t_dur}ث")
+            if progress:
+                with _PROGRESS_LOCK:
+                    _PROGRESS["tables"].append(
+                        {"table": table, "rows": cnt, "seconds": t_dur, "ok": True})
         conn.close()
-        return True, f"تم رفع نسخة احتياطية ({total} سجلًا) إلى Supabase ✅"
+        if progress:
+            _progress_update(running=False, phase="done", ok=True,
+                             overall_done=total,
+                             message=f"اكتمل الرفع ({total} سجلًا) ✅")
+        return True, f"تم رفع نسخة احتياطية ({total} سجلًا) إلى Supabase على دفعات ✅"
     except Exception as e:
         conn.close()
         hint = _schema_hint(e)
-        return False, f"فشل الرفع: {e}" + (f"\n\n{hint}" if hint else "")
+        emsg = f"فشل الرفع: {e}" + (f"\n\n{hint}" if hint else "")
+        if progress and _PROGRESS.get("phase") != "error":
+            _progress_update(running=False, phase="error", ok=False, error=str(e),
+                             message=emsg)
+        return False, emsg
 
 
 def restore_all():

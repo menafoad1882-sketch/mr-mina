@@ -129,6 +129,8 @@ def init_db():
         year_id INTEGER NOT NULL,
         group_id INTEGER,             -- المجموعة الحالية للطالب في هذا العام
         status TEXT DEFAULT 'active', -- active / inactive لكل عام على حدة
+        discount_fee REAL,            -- سعر الحصة الخاص بالطالب (NULL = لا تخفيض، استخدم سعر المجموعة)
+        discount_reason TEXT,         -- سبب التخفيض (للمدرس فقط)
         created_at TEXT,
         UNIQUE(student_id, year_id),
         FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
@@ -180,6 +182,7 @@ def init_db():
         amount REAL DEFAULT 0,
         fee_exempt INTEGER DEFAULT 0, -- 1 = معفى من رسوم هذه الحصة (غير مطالَب بالدفع)
         exempt_reason TEXT,           -- سبب الإعفاء (يظهر للمدرس فقط)
+        fee_charged REAL,             -- السعر الفعلي المستحق على الطالب في هذه الحصة (لقطة تاريخية: تخفيض أو سعر المجموعة)
         created_at TEXT,
         UNIQUE(session_id, student_id),
         FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
@@ -497,6 +500,8 @@ EXPECTED_COLUMNS = {
               "end_date": "TEXT", "created_at": "TEXT"},
     "enrollments": {"student_id": "INTEGER", "year_id": "INTEGER",
                     "group_id": "INTEGER", "status": "TEXT DEFAULT 'active'",
+                    # سعر الحصة الخاص بالطالب (تخفيض) لهذا العام — NULL = لا تخفيض
+                    "discount_fee": "REAL", "discount_reason": "TEXT",
                     "created_at": "TEXT"},
     "group_transfers": {"student_id": "INTEGER", "year_id": "INTEGER",
                         "from_group_id": "INTEGER", "to_group_id": "INTEGER",
@@ -521,6 +526,9 @@ EXPECTED_COLUMNS = {
                    # ضمن غير المدفوع، ولا يُعتبر متبقيًا. لا يمسّ الحضور/الواجب/الامتحان.
                    "fee_exempt": "INTEGER DEFAULT 0",
                    "exempt_reason": "TEXT",
+                   # السعر الفعلي المستحق على الطالب في هذه الحصة (لقطة تاريخية
+                   # ثابتة: سعر التخفيض إن وُجد وقت الحفظ، وإلا سعر المجموعة).
+                   "fee_charged": "REAL",
                    "created_at": "TEXT"},
     "exams": {"title": "TEXT", "group_id": "INTEGER", "year_id": "INTEGER",
               "total_marks": "REAL DEFAULT 0",

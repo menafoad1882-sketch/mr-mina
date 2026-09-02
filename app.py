@@ -853,6 +853,21 @@ def compute_level(conn, student_id):
     return avg_pct, att_pct, level
 
 
+@app.after_request
+def _no_cache_html(resp):
+    """يمنع تخزين صفحات HTML في كاش المتصفح، فتصل تحديثات الواجهة (مثل تصميم النوافذ)
+    فورًا بعد النشر دون الحاجة إلى تحديث قسري. لا يؤثر على الأصول الثابتة/الملفات."""
+    try:
+        ct = resp.headers.get("Content-Type", "")
+        if ct.startswith("text/html"):
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+    except Exception:
+        pass
+    return resp
+
+
 # ---------------------------------------------------------------------------
 # الرئيسية / لوحة التحكم
 # ---------------------------------------------------------------------------
@@ -1397,7 +1412,7 @@ def students():
     status = request.args.get("status", "active")  # active / inactive / all
     # الطلاب المسجّلون في العام النشط فقط (عبر enrollments)، بمجموعة وحالة العام
     sql = ("SELECT s.*, e.status enroll_status, e.group_id enroll_group_id, "
-           "g.name group_name "
+           "e.discount_fee, e.discount_reason, g.name group_name, g.fee group_fee "
            "FROM enrollments e JOIN students s ON e.student_id=s.id "
            "LEFT JOIN groups g ON e.group_id=g.id "
            "WHERE e.year_id=?")
@@ -1442,10 +1457,13 @@ def add_student():
          gid, request.form.get("notes", ""), "active", db.now()))
     new_sid = cur.lastrowid
     db.assign_student_credentials(conn, new_sid)
-    # سجّل الطالب في العام الدراسي الحالي بالمجموعة المختارة
+    # تخفيض رسوم الحصة (خاص بالطالب لهذا العام): NULL = لا تخفيض
+    disc_fee, disc_reason = _parse_discount(request.form)
+    # سجّل الطالب في العام الدراسي الحالي بالمجموعة المختارة + التخفيض إن وُجد
     conn.execute(
-        "INSERT INTO enrollments(student_id,year_id,group_id,status,created_at) "
-        "VALUES(?,?,?,?,?)", (new_sid, yid, gid, "active", db.now()))
+        "INSERT INTO enrollments(student_id,year_id,group_id,status,discount_fee,"
+        "discount_reason,created_at) VALUES(?,?,?,?,?,?,?)",
+        (new_sid, yid, gid, "active", disc_fee, disc_reason, db.now()))
     # ربط تلقائي بحساب ولي أمر موجود بنفس رقم الواتساب (لو أخوه مسجّل من قبل)
     linked_pid, linked_name = _auto_link_student_to_parent(
         conn, new_sid, request.form.get("parent_phone", ""))
@@ -1470,6 +1488,13 @@ def edit_student(sid):
          request.form["parent_phone"], request.form.get("grade", ""),
          request.form.get("group_id") or None,
          request.form.get("notes", ""), sid))
+    # تحديث تخفيض رسوم الحصة على تسجيل العام النشط فقط (خاص بهذا العام — لا يُنسخ
+    # تلقائيًا لأعوام أخرى). لا يمسّ السجلات المالية التاريخية (fee_charged ثابت).
+    yid = active_year_id()
+    disc_fee, disc_reason = _parse_discount(request.form)
+    conn.execute(
+        "UPDATE enrollments SET discount_fee=?, discount_reason=? "
+        "WHERE student_id=? AND year_id=?", (disc_fee, disc_reason, sid, yid))
     # ربط تلقائي بحساب ولي أمر موجود بنفس رقم الواتساب (لو لم يكن مربوطًا بعد)
     linked_pid, linked_name = _auto_link_student_to_parent(
         conn, sid, request.form.get("parent_phone", ""))
@@ -2315,16 +2340,17 @@ def session_detail(sid):
         conn.close()
         return "الحصة غير موجودة", 404
     syid = se["year_id"] or active_year_id()
-    # الطلاب المسجّلون النشطون في مجموعة الحصة لهذا العام (عبر enrollments)
+    group_fee = se["fee"] or 0
+    # الطلاب المسجّلون النشطون في مجموعة الحصة لهذا العام (عبر enrollments) + تخفيضهم
     if se["group_id"]:
         studs = conn.execute(
-            "SELECT s.* FROM enrollments e JOIN students s ON e.student_id=s.id "
+            "SELECT s.*, e.discount_fee FROM enrollments e JOIN students s ON e.student_id=s.id "
             "WHERE e.year_id=? AND e.group_id=? "
             "AND (e.status IS NULL OR e.status<>'inactive') ORDER BY s.name",
             (syid, se["group_id"])).fetchall()
     else:
         studs = conn.execute(
-            "SELECT s.* FROM enrollments e JOIN students s ON e.student_id=s.id "
+            "SELECT s.*, e.discount_fee FROM enrollments e JOIN students s ON e.student_id=s.id "
             "WHERE e.year_id=? AND (e.status IS NULL OR e.status<>'inactive') ORDER BY s.name",
             (syid,)).fetchall()
     existing = {a["student_id"]: a for a in conn.execute(
@@ -2332,15 +2358,23 @@ def session_detail(sid):
     # طلاب لديهم حضور مسجّل سابقًا في هذه الحصة لكنهم غير مدرجين الآن (عرض تاريخي)
     shown_ids = {s["id"] for s in studs}
     hist = conn.execute(
-        "SELECT DISTINCT s.* FROM students s JOIN attendance a ON a.student_id=s.id "
-        "WHERE a.session_id=? ORDER BY s.name", (sid,)).fetchall()
+        "SELECT DISTINCT s.*, e.discount_fee FROM students s "
+        "JOIN attendance a ON a.student_id=s.id "
+        "LEFT JOIN enrollments e ON e.student_id=s.id AND e.year_id=? "
+        "WHERE a.session_id=? ORDER BY s.name", (syid, sid)).fetchall()
     extra = [h for h in hist if h["id"] not in shown_ids]
     if extra:
         studs = list(studs) + list(extra)
+    # السعر الفعلي المستحق لكل طالب (تخفيض إن وُجد، وإلا سعر المجموعة)
+    eff_fee = {}
+    for s in studs:
+        d = s["discount_fee"] if "discount_fee" in s.keys() else None
+        eff_fee[s["id"]] = float(d) if d is not None else float(group_fee)
     conn.close()
     # قائمة أسباب الإعفاء الجاهزة (تظهر للمدرس فقط)
     exempt_reasons = ["منحة", "أخو/أخت طالب", "قرار إداري", "سبب خاص"]
     return render_template("session_detail.html", se=se, students=studs,
+                           group_fee=group_fee, eff_fee=eff_fee,
                            existing=existing, status_ar=STATUS_AR,
                            exempt_reasons=exempt_reasons)
 
@@ -2348,20 +2382,27 @@ def session_detail(sid):
 @app.route("/sessions/<int:sid>/notes", methods=["POST"])
 @login_required
 def save_session_notes(sid):
-    """حفظ/تعديل ملاحظات الحصة (منفصلة لكل حصة، تُخزَّن دائمًا في قاعدة البيانات).
+    """حفظ/تعديل اسم الدرس وملاحظات الحصة (على مستوى الحصة نفسها بمعرّفها الحالي).
 
-    ملاحظات كل حصة مستقلة تمامًا (على مستوى الحصة وليس المجموعة) وتظهر عند إعادة
-    فتح الحصة وفي سجلّ الحصص والتقارير. قابلة للتعديل ما لم يكن العام مقفولًا للعرض.
+    يُحدّث السجل القائم فقط (نفس ID) دون إنشاء حصة جديدة، فتبقى كل سجلات الحضور
+    والمدفوعات مرتبطة بنفس الحصة. الاسم الجديد يظهر في كل صفحات عرض الحصة/التقارير.
+    اسم الدرس وملاحظات كل حصة مستقلة تمامًا (وليست على مستوى المجموعة).
+    قابلة للتعديل حتى بعد تسجيل الحضور، ما لم يكن العام مقفولًا للعرض.
     """
     if is_browsing_old_year():
         return jsonify({"ok": False, "error": "عام سابق (عرض فقط)"}), 403
     conn = db.get_db()
-    se = conn.execute("SELECT id FROM sessions WHERE id=?", (sid,)).fetchone()
+    se = conn.execute("SELECT id, title, notes FROM sessions WHERE id=?", (sid,)).fetchone()
     if not se:
         conn.close()
         return jsonify({"ok": False, "error": "الحصة غير موجودة"}), 404
-    notes = (request.get_json() or {}).get("notes", "")
-    conn.execute("UPDATE sessions SET notes=? WHERE id=?", (notes, sid))
+    data = request.get_json() or {}
+    # نحدّث فقط الحقول المُرسَلة (تجزئة آمنة): اسم الدرس و/أو الملاحظات، بلا لمس
+    # أي بيانات أخرى للحصة (المجموعة/التاريخ/السعر) أو سجلاتها المرتبطة.
+    notes = data.get("notes", se["notes"])
+    title = data.get("title", se["title"])
+    conn.execute("UPDATE sessions SET title=?, notes=? WHERE id=?",
+                 (title, notes, sid))
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
@@ -2432,6 +2473,48 @@ def _check_absence_alerts(conn, student_ids, year_id):
     return created
 
 
+def _parse_discount(form):
+    """يقرأ حقول التخفيض من نموذج الطالب ويرجّع (discount_fee, discount_reason).
+
+    - discount_fee = None لو التخفيض غير مفعّل أو القيمة فارغة/غير صالحة (= لا تخفيض،
+      يُستخدم سعر المجموعة). قيمة رقمية = سعر الحصة الخاص بالطالب (يشمل 0 لو أُدخل).
+    - التخفيض منفصل تمامًا عن الإعفاء (fee_exempt) الذي يُدار على مستوى الحصة.
+    """
+    if not form.get("has_discount"):
+        return (None, None)
+    raw = (form.get("discount_fee") or "").strip()
+    if raw == "":
+        return (None, None)
+    try:
+        val = float(raw)
+    except (ValueError, TypeError):
+        return (None, None)
+    if val < 0:
+        return (None, None)
+    reason = (form.get("discount_reason") or "").strip() or None
+    return (val, reason)
+
+
+def _effective_fee(conn, student_id, year_id, group_fee):
+    """السعر الفعلي المستحق على الطالب في حصة: سعر التخفيض الخاص به لهذا العام إن
+    وُجد (enrollments.discount_fee غير NULL)، وإلا سعر المجموعة الافتراضي.
+
+    التخفيض ليس إعفاءً وليس دَينًا: هو سعر حصة خاص بالطالب. NULL = لا تخفيض.
+    """
+    try:
+        enr = conn.execute(
+            "SELECT discount_fee FROM enrollments WHERE student_id=? AND year_id=?",
+            (student_id, year_id)).fetchone()
+    except Exception:
+        enr = None
+    if enr is not None and enr["discount_fee"] is not None:
+        try:
+            return float(enr["discount_fee"])
+        except (ValueError, TypeError):
+            pass
+    return float(group_fee or 0)
+
+
 @app.route("/sessions/<int:sid>/save", methods=["POST"])
 @login_required
 def save_attendance(sid):
@@ -2439,7 +2522,7 @@ def save_attendance(sid):
         return jsonify({"ok": False, "error": "عام سابق (عرض فقط)"}), 403
     conn = db.get_db()
     se = conn.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
-    fee = se["fee"] or 0
+    group_fee = se["fee"] or 0
     syid = se["year_id"] or active_year_id()
     data = request.get_json()
     reminders_created = 0
@@ -2449,6 +2532,9 @@ def save_attendance(sid):
         homework = item.get("homework", "none")
         if homework not in HW_STATUSES:
             homework = "none"
+        # السعر الفعلي المستحق على هذا الطالب = سعر التخفيض الخاص به إن وُجد، وإلا
+        # سعر المجموعة. كل حسابات المتبقّي/التذكير تُبنى على هذا السعر (وليس سعر المجموعة).
+        fee = _effective_fee(conn, st_id, syid, group_fee)
         # إعفاء الطالب من رسوم هذه الحصة (غير مطالَب بالدفع)
         fee_exempt = 1 if item.get("fee_exempt") else 0
         exempt_reason = (item.get("exempt_reason") or "").strip() if fee_exempt else ""
@@ -2460,6 +2546,9 @@ def save_attendance(sid):
             amount = 0
         # المعفى غير مطالَب بالدفع: لا نحتسب له مبلغًا مستحقًا (لكن نُبقي أي مبلغ
         # سجّله المدرس فعليًا كتحصيل استثنائي — لا نمسّ سجلات الدفع التاريخية).
+        # نحفظ السعر المستحق كلقطة ثابتة على السجل (fee_charged) لعدم تأثّر السجلات
+        # التاريخية بأي تعديل مستقبلي على التخفيض (البند 17).
+        fee_charged = 0 if fee_exempt else fee
         # المجموعة وقت التسجيل = مجموعة الطالب في تسجيل هذا العام (سجل تاريخي)
         enr = conn.execute(
             "SELECT group_id FROM enrollments WHERE student_id=? AND year_id=?",
@@ -2472,15 +2561,17 @@ def save_attendance(sid):
         gname = grow["name"] if grow else None
         conn.execute(
             "INSERT INTO attendance(session_id,student_id,group_id,student_name_snapshot,"
-            "group_name_snapshot,status,homework,paid,amount,fee_exempt,exempt_reason,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
+            "group_name_snapshot,status,homework,paid,amount,fee_exempt,exempt_reason,"
+            "fee_charged,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(session_id,student_id) DO UPDATE SET "
             "group_id=excluded.group_id, student_name_snapshot=excluded.student_name_snapshot, "
             "group_name_snapshot=excluded.group_name_snapshot, status=excluded.status, "
             "homework=excluded.homework, paid=excluded.paid, amount=excluded.amount, "
-            "fee_exempt=excluded.fee_exempt, exempt_reason=excluded.exempt_reason",
+            "fee_exempt=excluded.fee_exempt, exempt_reason=excluded.exempt_reason, "
+            "fee_charged=excluded.fee_charged",
             (sid, st_id, grp_id, sname, gname, status, homework, paid, amount,
-             fee_exempt, exempt_reason, db.now()))
+             fee_exempt, exempt_reason, fee_charged, db.now()))
 
         # تذكير المتأخرات: لو الطالب حاضر ودفع أقل من سعر الحصة.
         # المعفى من الرسوم لا يُنشأ له تذكير إطلاقًا (غير مطالَب بالدفع) — ونمسح أي
@@ -4603,14 +4694,20 @@ def build_report(start_date, end_date, label=None, year_id=None):
         by_group[s["group_name"] or "بدون مجموعة"] += s["income"]
     # اسم الطالب: من جدول الطلاب إن وُجد، وإلا من لقطة الاسم المحفوظة (طالب محذوف).
     # is_deleted=1 عندما لا يوجد سجل طالب مطابق (تم حذف ملفه) لكن السجل المالي باقٍ.
-    # غير المدفوع: يستبعد المعفيين من الرسوم (fee_exempt=1) — غير مطالَبين بالدفع.
+    # غير المدفوع: يستبعد المعفيين (fee_exempt=1)، ويعتمد السعر الفعلي المستحق
+    # (fee_charged: سعر التخفيض إن وُجد وقت الحفظ وإلا سعر المجموعة) بدل سعر المجموعة
+    # الخام. المتبقّي = السعر الفعلي − المدفوع، ويُدرَج فقط لو أكبر من صفر (فالتخفيض
+    # ليس دَينًا: من يدفع سعره المخفّض كاملًا ليس متأخرًا).
     unpaid = conn.execute(
         "SELECT COALESCE(s.name, a.student_name_snapshot, 'طالب محذوف') AS name, "
-        "CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS is_deleted, "
-        "se.date, se.fee FROM attendance a "
+        "CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS is_deleted, se.date, "
+        "COALESCE(a.fee_charged, se.fee) AS fee, "
+        "(COALESCE(a.fee_charged, se.fee) - COALESCE(a.amount,0)) AS remaining "
+        "FROM attendance a "
         "LEFT JOIN students s ON a.student_id=s.id JOIN sessions se ON a.session_id=se.id "
-        "WHERE a.paid=0 AND (a.fee_exempt IS NULL OR a.fee_exempt=0) "
+        "WHERE (a.fee_exempt IS NULL OR a.fee_exempt=0) "
         "AND a.status IN ('present','late') "
+        "AND (COALESCE(a.fee_charged, se.fee) - COALESCE(a.amount,0)) > 0 "
         "AND se.year_id=? AND se.date>=? AND se.date<=? "
         "ORDER BY se.date", (year_id, start_date, end_date)).fetchall()
     # المعفَون من الرسوم (للعرض المنفصل في التقرير المالي — لا يُحسبون غير مدفوع)
@@ -5139,13 +5236,30 @@ def supabase_migration_sql():
     return Response(sql, mimetype="text/plain; charset=utf-8")
 
 
-@app.route("/supabase/backup")
+@app.route("/supabase/backup", methods=["GET", "POST"])
 @login_required
 def supabase_backup():
-    # نسخة يدوية فورية تحدّث الحالة أيضًا (نفس مسار النسخ التلقائي)
-    ok, msg = backup_scheduler.run_backup_now()
-    flash(msg, "success" if ok else "error")
+    """يبدأ نسخة احتياطية يدوية على دفعات في الخلفية، وترجع الواجهة فورًا.
+
+    الرفع على دفعات قد يستغرق وقتًا مع البيانات الكبيرة، فلا نحجب الطلب: نشغّله في
+    خيط خلفي وتتابع الواجهة التقدّم عبر /supabase/backup-progress. طلب AJAX يرجّع
+    JSON، والطلب العادي يعود للإعدادات.
+    """
+    if backup_scheduler.start_backup_async():
+        msg, cat = "بدأ الرفع على دفعات — تابع التقدّم بالأسفل.", "success"
+    else:
+        msg, cat = "هناك عملية نسخ جارية بالفعل.", "error"
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"started": cat == "success", "message": msg})
+    flash(msg, cat)
     return redirect(url_for("settings", tab="supabase"))
+
+
+@app.route("/supabase/backup-progress")
+@login_required
+def supabase_backup_progress():
+    """تقدّم النسخ الاحتياطي الحالي (JSON) — يُقرأ لحظيًا من الواجهة."""
+    return jsonify(sb.get_backup_progress())
 
 
 @app.route("/supabase/backup-status")

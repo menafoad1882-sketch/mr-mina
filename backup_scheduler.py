@@ -24,6 +24,21 @@ _started = False
 _lock = threading.Lock()
 _wake = threading.Event()
 
+# خيط النسخ اليدوي في الخلفية (حتى لا يحجب طلب HTTP أثناء الرفع على دفعات)
+_manual_thread = None
+_manual_lock = threading.Lock()
+
+
+def start_backup_async():
+    """يبدأ نسخة احتياطية يدوية في خيط خلفي. يرجّع True لو بدأت، False لو هناك واحدة جارية."""
+    global _manual_thread
+    with _manual_lock:
+        if _manual_thread and _manual_thread.is_alive():
+            return False
+        _manual_thread = threading.Thread(target=run_backup_now, daemon=True)
+        _manual_thread.start()
+        return True
+
 
 def _now():
     return datetime.now()

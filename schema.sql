@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS enrollments (
     year_id INTEGER,
     group_id INTEGER,
     status TEXT DEFAULT 'active',
+    discount_fee REAL,
+    discount_reason TEXT,
     created_at TEXT
 );
 
@@ -97,6 +99,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     amount REAL DEFAULT 0,
     fee_exempt INTEGER DEFAULT 0,
     exempt_reason TEXT,
+    fee_charged REAL,
     created_at TEXT
 );
 

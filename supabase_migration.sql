@@ -63,6 +63,8 @@ alter table enrollments add column if not exists student_id bigint;
 alter table enrollments add column if not exists year_id bigint;
 alter table enrollments add column if not exists group_id bigint;
 alter table enrollments add column if not exists status text;
+alter table enrollments add column if not exists discount_fee real;
+alter table enrollments add column if not exists discount_reason text;
 alter table enrollments add column if not exists created_at text;
 -- group_transfers
 alter table group_transfers add column if not exists student_id bigint;
@@ -92,6 +94,7 @@ alter table attendance add column if not exists paid bigint;
 alter table attendance add column if not exists amount real;
 alter table attendance add column if not exists fee_exempt bigint;
 alter table attendance add column if not exists exempt_reason text;
+alter table attendance add column if not exists fee_charged real;
 alter table attendance add column if not exists created_at text;
 -- exams
 alter table exams add column if not exists title text;
