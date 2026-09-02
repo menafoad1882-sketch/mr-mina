@@ -6,7 +6,7 @@
   <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
     <div>
       <h3>{{ se.group_name or 'كل الطلاب' }} — {{ se.date }}</h3>
-      <p class="muted">{{ se.title or 'بدون عنوان' }} · سعر الحصة: {{ '%g'|format(se.fee) }} ج</p>
+      <p class="muted"><span id="sessTitleHdr">{{ se.title or 'بدون عنوان' }}</span> · سعر الحصة: {{ '%g'|format(se.fee) }} ج</p>
     </div>
     <div class="actions">
       <a href="{{ url_for('scan_attendance', sid=se.id) }}" class="btn amber">📷 مسح QR للحضور</a>
@@ -16,16 +16,25 @@
   </div>
 </div>
 
-<!-- ملاحظات الحصة (مستقلة لكل حصة، تُحفظ في قاعدة البيانات وتظهر عند إعادة الفتح) -->
+<!-- تعديل اسم الدرس + ملاحظات الحصة (على نفس الحصة بمعرّفها؛ لا تُنشأ حصة جديدة) -->
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-    <h3 style="margin:0">📝 ملاحظات الحصة</h3>
+    <h3 style="margin:0">✏️ تعديل بيانات الحصة</h3>
     <span id="notesMsg" class="muted" style="font-size:.85rem"></span>
   </div>
-  <p class="muted" style="font-size:.83rem;margin:6px 0 10px">اكتب ملاحظات خاصة بهذه الحصة (مثال: تم شرح الدرس ومراجعة الواجب). تبقى محفوظة لهذه الحصة تحديدًا.</p>
-  <textarea id="sessionNotes" rows="3" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-family:inherit;font-size:.95rem;resize:vertical">{{ se.notes or '' }}</textarea>
   <div style="margin-top:10px">
-    <button type="button" class="btn green sm" onclick="saveNotes()">💾 حفظ الملاحظات</button>
+    <label style="display:block;font-weight:600;font-size:.9rem;margin-bottom:6px">اسم الدرس الذي تم شرحه</label>
+    <input id="sessionTitle" type="text" placeholder="مثال: الوحدة الأولى – الدرس الأول"
+           style="width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-family:inherit;font-size:.95rem"
+           value="{{ se.title or '' }}">
+  </div>
+  <div style="margin-top:12px">
+    <label style="display:block;font-weight:600;font-size:.9rem;margin-bottom:6px">📝 ملاحظات الحصة</label>
+    <textarea id="sessionNotes" rows="3" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-family:inherit;font-size:.95rem;resize:vertical" placeholder="مثال: تم شرح الدرس ومراجعة الواجب">{{ se.notes or '' }}</textarea>
+  </div>
+  <p class="muted" style="font-size:.8rem;margin:8px 0 0">تعديل الاسم/الملاحظات يحدّث هذه الحصة فقط دون التأثير على الحضور أو المدفوعات المسجّلة.</p>
+  <div style="margin-top:10px">
+    <button type="button" class="btn green sm" onclick="saveNotes()">💾 حفظ التعديل</button>
   </div>
 </div>
 
@@ -44,8 +53,16 @@
     <tr><th>الطالب</th><th>الحالة</th><th>الواجب</th><th>الرسوم</th><th>دفع؟</th><th>المبلغ</th></tr>
     {% for s in students %}
     {% set ex = existing.get(s.id) %}
-    <tr data-sid="{{ s.id }}" data-exempt="{{ '1' if ex and ex.fee_exempt else '0' }}">
+    {% set sfee = eff_fee.get(s.id, group_fee) %}
+    {% set has_disc = (s.discount_fee is defined and s.discount_fee is not none) %}
+    <tr data-sid="{{ s.id }}" data-exempt="{{ '1' if ex and ex.fee_exempt else '0' }}" data-fee="{{ sfee }}">
       <td><b>{{ s.name }}</b>
+        {% if has_disc %}
+        <div style="margin-top:4px">
+          <span class="pill" style="background:#fef3c7;color:#92400e;font-size:.72rem">🏷️ سعر خاص: {{ '%g'|format(sfee) }} ج</span>
+          <span class="muted" style="font-size:.7rem">(الأساسي {{ '%g'|format(group_fee) }} ج)</span>
+        </div>
+        {% endif %}
         <div class="exempt-badge" style="margin-top:4px;{{ 'display:none' if not (ex and ex.fee_exempt) }}">
           <span class="pill" style="background:#e0e7ff;color:#3730a3;font-size:.72rem">🎗️ معفى من الرسوم</span>
         </div>
@@ -85,7 +102,7 @@
       <td><input type="checkbox" class="paid-chk" style="width:22px;height:22px"
                  {{ 'checked' if ex and ex.paid }} onchange="recalc()"></td>
       <td><input type="number" step="any" class="amount-val" style="width:100px"
-                 value="{{ '%g'|format(ex.amount) if ex and ex.amount else '%g'|format(se.fee) }}"
+                 value="{{ '%g'|format(ex.amount) if ex and ex.amount else '%g'|format(sfee) }}"
                  oninput="recalc()"></td>
     </tr>
     {% endfor %}
@@ -118,13 +135,17 @@
 const FEE = {{ se.fee }};
 function saveNotes(){
   const notes=document.getElementById('sessionNotes').value;
+  const title=document.getElementById('sessionTitle').value;
   const msg=document.getElementById('notesMsg');
   msg.textContent='جارٍ الحفظ...';
   fetch('{{ url_for("save_session_notes", sid=se.id) }}',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({notes})
+    body:JSON.stringify({title, notes})
   }).then(r=>r.json()).then(d=>{
-    msg.textContent = d.ok ? '✅ حُفظت الملاحظات' : ('❌ '+(d.error||'فشل الحفظ'));
+    msg.textContent = d.ok ? '✅ حُفظ التعديل' : ('❌ '+(d.error||'فشل الحفظ'));
+    // حدّث اسم الدرس المعروض في ترويسة الصفحة فورًا (بلا إعادة تحميل)
+    var hdr=document.getElementById('sessTitleHdr');
+    if(d.ok && hdr){ hdr.textContent = title || 'بدون عنوان'; }
     if(d.ok) setTimeout(()=>msg.textContent='',3000);
   }).catch(()=>{ msg.textContent='❌ تعذّر الحفظ'; });
 }

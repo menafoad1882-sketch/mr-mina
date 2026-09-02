@@ -38,13 +38,21 @@
   <table>
     <tr>
       <th style="width:34px"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="تحديد الكل"></th>
-      <th>الاسم</th><th>المجموعة</th><th>الحالة</th><th>كود/باسورد الامتحان</th><th>رقم ولي الأمر</th><th>إجراءات</th></tr>
+      <th>الاسم</th><th>المجموعة</th><th>الرسوم</th><th>الحالة</th><th>كود/باسورد الامتحان</th><th>رقم ولي الأمر</th><th>إجراءات</th></tr>
     {% for s in students %}
     {% set is_inactive = (s.enroll_status == 'inactive') %}
     <tr {{ 'style=opacity:.6' if is_inactive }}>
       <td><input type="checkbox" class="selCard" value="{{ s.id }}" onchange="updateSel()"></td>
       <td><a href="{{ url_for('student_profile', sid=s.id) }}"><b>{{ s.name }}</b></a></td>
       <td>{{ s.group_name or '-' }}</td>
+      <td>
+        {% if s.discount_fee is not none %}
+          <span title="سعر خاص بالطالب">🏷️ {{ '%g'|format(s.discount_fee) }} ج</span>
+          <div class="muted" style="font-size:.72rem">تخفيض{% if s.discount_reason %} · {{ s.discount_reason }}{% endif %}</div>
+        {% else %}
+          <span class="muted">💰 {{ '%g'|format(s.group_fee or 0) }} ج</span>
+        {% endif %}
+      </td>
       <td>
         {% if is_inactive %}<span class="badge absent">غير فعّال</span>
         {% else %}<span class="badge present">فعّال</span>{% endif %}
@@ -53,7 +61,7 @@
       <td>{{ s.parent_phone }}</td>
       <td class="actions">
         <a href="{{ url_for('student_profile', sid=s.id) }}" class="btn sm ghost">الملف</a>
-        <button class="btn sm" onclick='editStudent({{ s.id }}, {{ s.name|tojson }}, {{ (s.phone or "")|tojson }}, {{ s.parent_phone|tojson }}, {{ (s.grade or "")|tojson }}, {{ s.group_id or "null" }}, {{ (s.notes or "")|tojson }})'>تعديل</button>
+        <button class="btn sm" onclick='editStudent({{ s.id }}, {{ s.name|tojson }}, {{ (s.phone or "")|tojson }}, {{ s.parent_phone|tojson }}, {{ (s.grade or "")|tojson }}, {{ s.group_id or "null" }}, {{ (s.notes or "")|tojson }}, {{ s.discount_fee if s.discount_fee is not none else "null" }}, {{ (s.discount_reason or "")|tojson }})'>تعديل</button>
         {% if is_inactive %}
         <a href="{{ url_for('reactivate_student', sid=s.id) }}" class="btn sm green">♻️ إعادة تفعيل</a>
         {% else %}
@@ -70,50 +78,91 @@
   {% endif %}
 </div>
 
+<datalist id="discReasons">
+  <option value="تخفيض خاص"><option value="أخو طالب"><option value="منحة"><option value="حالة خاصة">
+</datalist>
 <!-- Add modal -->
 <div class="modal" id="addStudent">
-  <div class="modal-box">
+  <div class="modal-box modal-flex">
     <div class="modal-head"><h3>إضافة طالب جديد</h3>
       <button class="close" onclick="closeModal('addStudent')">&times;</button></div>
-    <form method="post" action="{{ url_for('add_student') }}">
-      <div class="field"><label>اسم الطالب *</label><input name="name" required></div>
-      <div class="form-row">
-        <div class="field"><label>رقم الطالب</label><input name="phone" placeholder="0100..."></div>
-        <div class="field"><label>رقم ولي الأمر (واتساب) *</label><input name="parent_phone" required placeholder="0111..."></div>
+    <form method="post" action="{{ url_for('add_student') }}" class="modal-form">
+      <div class="modal-body">
+        <div class="field"><label>اسم الطالب *</label><input name="name" required></div>
+        <div class="form-row">
+          <div class="field"><label>رقم الطالب</label><input name="phone" placeholder="0100..."></div>
+          <div class="field"><label>رقم ولي الأمر (واتساب) *</label><input name="parent_phone" required placeholder="0111..."></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>الصف</label><input name="grade"></div>
+          <div class="field"><label>المجموعة</label>
+            <select name="group_id"><option value="">بدون</option>
+              {% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>{% endfor %}
+            </select></div>
+        </div>
+        <div class="field" style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+            <input type="checkbox" name="has_discount" value="1" onchange="toggleDisc(this,'a')"> 🏷️ تخفيض رسوم الحصة (سعر خاص بالطالب)
+          </label>
+          <div id="a_disc" style="display:none;margin-top:8px">
+            <div class="form-row">
+              <div class="field"><label>قيمة الحصة للطالب (بعد التخفيض)</label>
+                <input name="discount_fee" type="number" step="any" min="0" placeholder="مثال: 70"></div>
+              <div class="field"><label>سبب التخفيض (اختياري)</label>
+                <input name="discount_reason" list="discReasons" placeholder="تخفيض خاص / أخو طالب / منحة..."></div>
+            </div>
+            <p class="muted" style="font-size:.78rem;margin:0">التخفيض سعر حصة خاص بالطالب لهذا العام — ليس دَينًا وليس إعفاءً. اتركه فارغًا لاستخدام سعر المجموعة.</p>
+          </div>
+        </div>
+        <div class="field"><label>ملاحظات</label><textarea name="notes" rows="2"></textarea></div>
       </div>
-      <div class="form-row">
-        <div class="field"><label>الصف</label><input name="grade"></div>
-        <div class="field"><label>المجموعة</label>
-          <select name="group_id"><option value="">بدون</option>
-            {% for g in groups %}<option value="{{ g.id }}" {{ 'selected' if sel_group==g.id|string }}>{{ g.name }}</option>{% endfor %}
-          </select></div>
+      <div class="modal-footer">
+        <button class="btn green" type="submit">حفظ الطالب</button>
+        <button class="btn ghost" type="button" onclick="closeModal('addStudent')">إلغاء</button>
       </div>
-      <div class="field"><label>ملاحظات</label><textarea name="notes" rows="2"></textarea></div>
-      <button class="btn green" type="submit">حفظ الطالب</button>
     </form>
   </div>
 </div>
 
 <!-- Edit modal -->
 <div class="modal" id="editStudent">
-  <div class="modal-box">
+  <div class="modal-box modal-flex">
     <div class="modal-head"><h3>تعديل بيانات الطالب</h3>
       <button class="close" onclick="closeModal('editStudent')">&times;</button></div>
-    <form method="post" id="editForm">
-      <div class="field"><label>اسم الطالب *</label><input name="name" id="e_name" required></div>
-      <div class="form-row">
-        <div class="field"><label>رقم الطالب</label><input name="phone" id="e_phone"></div>
-        <div class="field"><label>رقم ولي الأمر *</label><input name="parent_phone" id="e_parent" required></div>
+    <form method="post" id="editForm" class="modal-form">
+      <div class="modal-body">
+        <div class="field"><label>اسم الطالب *</label><input name="name" id="e_name" required></div>
+        <div class="form-row">
+          <div class="field"><label>رقم الطالب</label><input name="phone" id="e_phone"></div>
+          <div class="field"><label>رقم ولي الأمر *</label><input name="parent_phone" id="e_parent" required></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>الصف</label><input name="grade" id="e_grade"></div>
+          <div class="field"><label>المجموعة</label>
+            <select name="group_id" id="e_group"><option value="">بدون</option>
+              {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+            </select></div>
+        </div>
+        <div class="field" style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+            <input type="checkbox" name="has_discount" id="e_has_disc" value="1" onchange="toggleDisc(this,'e')"> 🏷️ تخفيض رسوم الحصة (سعر خاص بالطالب)
+          </label>
+          <div id="e_disc" style="display:none;margin-top:8px">
+            <div class="form-row">
+              <div class="field"><label>قيمة الحصة للطالب (بعد التخفيض)</label>
+                <input name="discount_fee" id="e_disc_fee" type="number" step="any" min="0" placeholder="مثال: 70"></div>
+              <div class="field"><label>سبب التخفيض (اختياري)</label>
+                <input name="discount_reason" id="e_disc_reason" list="discReasons" placeholder="تخفيض خاص / أخو طالب / منحة..."></div>
+            </div>
+            <p class="muted" style="font-size:.78rem;margin:0">خاص بالعام الدراسي الحالي فقط — لا يؤثر على السجلات المالية السابقة.</p>
+          </div>
+        </div>
+        <div class="field"><label>ملاحظات</label><textarea name="notes" id="e_notes" rows="2"></textarea></div>
       </div>
-      <div class="form-row">
-        <div class="field"><label>الصف</label><input name="grade" id="e_grade"></div>
-        <div class="field"><label>المجموعة</label>
-          <select name="group_id" id="e_group"><option value="">بدون</option>
-            {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
-          </select></div>
+      <div class="modal-footer">
+        <button class="btn green" type="submit">حفظ التعديلات</button>
+        <button class="btn ghost" type="button" onclick="closeModal('editStudent')">إلغاء</button>
       </div>
-      <div class="field"><label>ملاحظات</label><textarea name="notes" id="e_notes" rows="2"></textarea></div>
-      <button class="btn green" type="submit">حفظ التعديلات</button>
     </form>
   </div>
 </div>
@@ -159,7 +208,10 @@ function openDeactivate(id,name){
   document.getElementById('d_name').textContent = name;
   openModal('deactivateStudent');
 }
-function editStudent(id,name,phone,parent,grade,group,notes){
+function toggleDisc(cb, pfx){
+  document.getElementById(pfx+'_disc').style.display = cb.checked ? 'block' : 'none';
+}
+function editStudent(id,name,phone,parent,grade,group,notes,discFee,discReason){
   document.getElementById('editForm').action = '/students/edit/'+id;
   document.getElementById('e_name').value = name;
   document.getElementById('e_phone').value = phone;
@@ -167,6 +219,11 @@ function editStudent(id,name,phone,parent,grade,group,notes){
   document.getElementById('e_grade').value = grade;
   document.getElementById('e_group').value = group||'';
   document.getElementById('e_notes').value = notes;
+  var hasDisc = (discFee !== null && discFee !== undefined);
+  document.getElementById('e_has_disc').checked = hasDisc;
+  document.getElementById('e_disc_fee').value = hasDisc ? discFee : '';
+  document.getElementById('e_disc_reason').value = discReason || '';
+  document.getElementById('e_disc').style.display = hasDisc ? 'block' : 'none';
   openModal('editStudent');
 }
 </script>

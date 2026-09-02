@@ -315,8 +315,21 @@
     <h3>🔧 إجراءات Supabase</h3>
     <div class="actions" style="margin-bottom:16px">
       <a href="{{ url_for('supabase_test') }}" class="btn ghost">🔌 اختبار الاتصال</a>
-      <a href="{{ url_for('supabase_backup') }}" class="btn green">⬆️ رفع نسخة احتياطية للسحابة</a>
+      <button type="button" class="btn green" id="backupBtn" onclick="startBackup()">⬆️ رفع نسخة احتياطية للسحابة</button>
       <a href="{{ url_for('supabase_restore') }}" class="btn amber" onclick="return confirm('استرجاع البيانات من السحابة؟ سيتم دمجها مع البيانات المحلية.')">⬇️ استرجاع من السحابة</a>
+    </div>
+    <!-- شريط تقدّم النسخ الاحتياطي على دفعات (يظهر أثناء الرفع) -->
+    <div id="backupProgress" style="display:none;margin-bottom:16px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b id="bpPhase">جارٍ التحضير...</b>
+        <span id="bpPercent" style="font-weight:700;color:var(--primary)">0%</span>
+      </div>
+      <div style="height:12px;background:#e2e8f0;border-radius:8px;overflow:hidden">
+        <div id="bpBar" style="height:100%;width:0%;background:linear-gradient(90deg,#16a34a,#22c55e);transition:width .3s"></div>
+      </div>
+      <div id="bpDetail" class="muted" style="font-size:.83rem;margin-top:8px"></div>
+      <div id="bpTables" style="font-size:.8rem;margin-top:8px;display:flex;flex-direction:column;gap:2px"></div>
+      <div id="bpError" style="font-size:.83rem;margin-top:8px;color:#b91c1c;white-space:pre-wrap"></div>
     </div>
     <div class="actions" style="margin-bottom:16px">
       <a href="{{ url_for('supabase_migration_sql', download='1') }}" class="btn">⬇️ تحميل سكربت مزامنة Supabase</a>
@@ -465,6 +478,51 @@ function setAnimations(level){
 function toggleWa(){
   document.getElementById('apiFields').style.display =
     document.getElementById('waMode').value==='api'?'block':'none';
+}
+// ── النسخ الاحتياطي على دفعات: بدء + متابعة التقدّم اللحظي ──
+var _bpTimer=null;
+function startBackup(){
+  var btn=document.getElementById('backupBtn');
+  btn.disabled=true; btn.textContent='⏳ جارٍ الرفع...';
+  document.getElementById('backupProgress').style.display='block';
+  document.getElementById('bpError').textContent='';
+  document.getElementById('bpTables').innerHTML='';
+  fetch('{{ url_for("supabase_backup") }}',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d.started){ document.getElementById('bpPhase').textContent=d.message||'تعذّر البدء'; }
+      pollBackup();
+    }).catch(function(){ pollBackup(); });
+  if(_bpTimer) clearInterval(_bpTimer);
+  _bpTimer=setInterval(pollBackup, 1000);
+}
+function pollBackup(){
+  fetch('{{ url_for("supabase_backup_progress") }}').then(function(r){return r.json();}).then(function(d){
+    var pct=d.percent||0;
+    document.getElementById('bpPercent').textContent=pct+'%';
+    document.getElementById('bpBar').style.width=pct+'%';
+    document.getElementById('bpPhase').textContent=d.message||d.phase||'';
+    var det='';
+    if(d.table){ det='الجدول الحالي: '+d.table+' ('+d.table_index+'/'+d.tables_total+')';
+      if(d.batches){ det+=' — الدفعة '+d.batch+'/'+d.batches; }
+      if(d.table_rows){ det+=' — '+d.table_done+'/'+d.table_rows+' سجل'; }
+    }
+    document.getElementById('bpDetail').textContent=det;
+    if(d.tables && d.tables.length){
+      document.getElementById('bpTables').innerHTML=d.tables.map(function(t){
+        return '<div>✅ '+t.table+' — '+t.rows+' سجل ('+t.seconds+'ث)</div>';}).join('');
+    }
+    if(d.phase==='error' && d.error){
+      document.getElementById('bpBar').style.background='#dc2626';
+      document.getElementById('bpError').textContent=d.error;
+    }
+    if(!d.running && d.ok!==null){
+      clearInterval(_bpTimer); _bpTimer=null;
+      var btn=document.getElementById('backupBtn');
+      btn.disabled=false; btn.textContent='⬆️ رفع نسخة احتياطية للسحابة';
+      if(d.ok){ document.getElementById('bpBar').style.width='100%'; }
+      refreshBackup();
+    }
+  }).catch(function(){});
 }
 // تحديث حالة النسخ الاحتياطي التلقائي
 function refreshBackup(){

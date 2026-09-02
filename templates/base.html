@@ -118,14 +118,53 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 .badge.unpaid{background:#fee2e2;color:#b91c1c}
 .badge.gray{background:#e2e8f0;color:#475569}
 /* Modal */
+/* نافذة عائمة مستجيبة: تتوسّط نافذة العرض وتبقى دائمًا داخلها على كل المقاسات.
+   نستخدم ارتفاع نافذة العرض الديناميكي (dvh) مع بديل JS (--vh) لأن 100vh على
+   الموبايل يشمل أشرطة المتصفح فيدفع التذييل خارج الشاشة. */
 .modal{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:200;
-  align-items:center;justify-content:center;padding:16px}
+  align-items:center;justify-content:center;
+  padding:16px;
+  padding-top:max(16px, env(safe-area-inset-top));
+  padding-bottom:max(16px, env(safe-area-inset-bottom))}
 .modal.open{display:flex}
-.modal-box{background:#fff;border-radius:16px;padding:24px;width:100%;max-width:520px;
-  max-height:90vh;overflow-y:auto}
+/* الارتفاع الأقصى = ارتفاع نافذة العرض الفعلي ناقص الهوامش (بديل --vh ثم dvh).
+   النوافذ العادية (القديمة): يتمرّر الصندوق نفسه. */
+.modal-box{background:#fff;border-radius:16px;width:min(94vw, 720px);padding:24px;
+  max-height:calc((var(--vh, 1vh) * 100) - 32px);overflow-y:auto}
+@supports (height:100dvh){
+  .modal-box{max-height:calc(100dvh - 32px)}
+}
 .modal-box h3{margin-bottom:16px}
 .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-.close{background:none;border:none;font-size:1.6rem;cursor:pointer;color:var(--muted)}
+.close{background:none;border:none;font-size:1.6rem;cursor:pointer;color:var(--muted);line-height:1}
+/* بنية النافذة العائمة ثلاثية الأقسام (رأس ثابت + جسم متمرّر + تذييل ثابت):
+   تُفعَّل بإضافة .modal-flex على .modal-box. الصندوق عمود مرن بلا حشو ولا تمرير،
+   والتمرير يقع على الجسم فقط فيبقى التذييل (حفظ/إلغاء) ظاهرًا دائمًا. */
+.modal-box.modal-flex{display:flex;flex-direction:column;padding:0;overflow:hidden}
+.modal-flex .modal-head{flex:0 0 auto;margin:0;padding:18px 22px 12px;
+  border-bottom:1px solid var(--border)}
+.modal-flex .modal-head h3{margin:0}
+.modal-flex .modal-form{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.modal-flex .modal-body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:16px 22px;min-height:0}
+.modal-flex .modal-footer{flex:0 0 auto;display:flex;gap:10px;justify-content:flex-start;
+  flex-wrap:wrap;padding:14px 22px;border-top:1px solid var(--border);background:#fff;
+  border-radius:0 0 16px 16px}
+html[data-theme="dark"] .modal-flex .modal-footer{background:var(--card)}
+/* منع تمرير الصفحة الخلفية أثناء فتح المودال */
+body.modal-lock{overflow:hidden}
+/* الجوال: النافذة شبه كاملة مع هوامش صغيرة تحترم مناطق الأمان */
+@media(max-width:640px){
+  .modal{padding:8px;
+    padding-top:max(8px, env(safe-area-inset-top));
+    padding-bottom:max(8px, env(safe-area-inset-bottom))}
+  .modal-box{width:100%;padding:18px;max-height:calc((var(--vh, 1vh) * 100) - 16px)}
+  @supports (height:100dvh){ .modal-box{max-height:calc(100dvh - 16px)} }
+  .modal-box.modal-flex{padding:0}
+  .modal-flex .modal-head{padding:14px 16px 10px}
+  .modal-flex .modal-body{padding:14px 16px}
+  .modal-flex .modal-footer{padding:12px 16px}
+}
 /* Flash */
 .flash{padding:13px 18px;border-radius:10px;margin-bottom:14px;font-weight:600;white-space:pre-line}
 .flash.success{background:#dcfce7;color:#15803d;border:1px solid #86efac}
@@ -164,6 +203,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary)
 @keyframes pageFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes cardRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes modalPop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+/* ظهور بدون transform حتى لا يتداخل مع تمرير جسم المودال أو حساب ارتفاعه */
+@keyframes modalFade{from{opacity:0}to{opacity:1}}
 @keyframes toastIn2{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
 
 /* بسيط فأعلى: انتقال دخول المحتوى الرئيسي */
@@ -188,7 +229,7 @@ html:not([data-anim="off"]) .card{transition:box-shadow .18s ease, transform .18
 html[data-anim="full"] .card:hover{box-shadow:0 6px 20px rgba(0,0,0,.10)}
 
 /* النوافذ (modals): ظهور منبثق ناعم */
-html:not([data-anim="off"]) .modal-box{animation:modalPop .2s ease both}
+html:not([data-anim="off"]) .modal-box{animation:modalFade .18s ease both}
 
 /* الشريط الجانبي: انتقال ناعم دائمًا (لا يتأثر بالإيقاف لأنه وظيفي) */
 .sidebar{transition:transform .3s ease}
@@ -294,9 +335,76 @@ function toggleMenu(){
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('overlay').classList.toggle('open');
 }
-function openModal(id){document.getElementById(id).classList.add('open')}
-function closeModal(id){document.getElementById(id).classList.remove('open')}
-document.addEventListener('click',e=>{if(e.target.classList.contains('modal'))e.target.classList.remove('open')});
+// متغير ارتفاع نافذة العرض الفعلي (بديل عن 100vh الذي يشمل أشرطة المتصفح على الجوال)
+function _setVH(){
+  document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px');
+  _sizeOpenModals();
+}
+// ضبط ارتفاع أقصى صريح بالبكسل لصناديق المودال المفتوحة اعتمادًا على الارتفاع
+// المرئي الفعلي لنافذة العرض — الحل الأضمن عبر كل المتصفحات ومستويات الزوم وتحجيم
+// نظام التشغيل، فلا يتجاوز الصندوق الشاشة أبدًا مهما كان دعم وحدات dvh/vh.
+function _availViewportH(){
+  // visualViewport أدقّ (يستبعد أشرطة المتصفح/التكبير)، مع بديل innerHeight
+  var vv = window.visualViewport;
+  return Math.round((vv && vv.height) ? vv.height : window.innerHeight);
+}
+function _sizeOpenModals(){
+  var margin = (window.innerWidth <= 640) ? 16 : 32;
+  var avail = Math.max(200, _availViewportH() - margin);
+  document.querySelectorAll('.modal.open .modal-box').forEach(function(box){
+    box.style.maxHeight = avail + 'px';
+    box.style.height = 'auto';  // يترك الفلكس يقلّص الجسم داخل الحد الأقصى
+  });
+}
+_setVH();
+window.addEventListener('resize', _setVH);
+window.addEventListener('orientationchange', _setVH);
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', _sizeOpenModals);
+  window.visualViewport.addEventListener('scroll', _sizeOpenModals);
+}
+var _modalScrollY=0;
+function openModal(id){
+  var m=document.getElementById(id); if(!m) return;
+  // ثبّت موضع تمرير الصفحة الحالي واقفل تمرير الخلفية (يعتمد نافذة العرض لا الصفحة)
+  _modalScrollY=window.scrollY||window.pageYOffset||0;
+  document.body.classList.add('modal-lock');
+  m.classList.add('open');
+  m.scrollTop=0;
+  var body=m.querySelector('.modal-body'); if(body) body.scrollTop=0;
+  _sizeOpenModals();  // اضبط الارتفاع الأقصى فور الفتح
+  // أعد الضبط عند أي تغيّر في محتوى المودال (مثل توسيع قسم التخفيض)
+  if(window.ResizeObserver && body && !m._ro){
+    m._ro=new ResizeObserver(function(){ _sizeOpenModals(); });
+    m._ro.observe(body);
+  }
+  // ركّز أول حقل إدخال داخل المودال (وصول أفضل)
+  setTimeout(function(){
+    _sizeOpenModals();
+    var scope=m.querySelector('.modal-body')||m;
+    var f=scope.querySelector('input:not([type=hidden]):not([disabled]),select,textarea');
+    if(f){ try{ f.focus(); }catch(e){} }
+  },50);
+}
+function closeModal(id){
+  var m=document.getElementById(id); if(!m) return;
+  m.classList.remove('open');
+  // فك قفل الخلفية واسترجع موضع التمرير السابق فقط لو لم يعد أي مودال مفتوحًا
+  if(!document.querySelector('.modal.open')){
+    document.body.classList.remove('modal-lock');
+    window.scrollTo(0,_modalScrollY);
+  }
+}
+document.addEventListener('click',e=>{if(e.target.classList.contains('modal')){
+  var id=e.target.id; if(id) closeModal(id); else e.target.classList.remove('open');
+}});
+// Escape يغلق أي مودال مفتوح
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){
+    var open=document.querySelector('.modal.open');
+    if(open && open.id) closeModal(open.id);
+  }
+});
 // رسائل الحالة العائمة: تختفي تلقائيًا بعد بضع ثوانٍ
 (function(){
   var area=document.getElementById('toastArea');
