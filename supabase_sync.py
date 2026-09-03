@@ -556,7 +556,7 @@ _TABLE_BATCH = {
     "questions": 50,
     "exams": 50,
     "wa_logs": 100,
-    "settings": 5,        # قد تحوي صور شعارات/تخطيطات base64
+    "settings": 5,         # قد تحوي صور شعارات/تخطيطات base64 كبيرة → دفعات صغيرة جدًا لتفادي 57014
     "results": 100,
     "exam_attempts": 100,
     "attendance": 200,

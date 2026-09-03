@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     fee_exempt BIGINT DEFAULT 0,
     exempt_reason TEXT,
     fee_charged REAL,
+    focus_level BIGINT,
     created_at TEXT
 );
 

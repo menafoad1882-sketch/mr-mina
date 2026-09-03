@@ -52,6 +52,16 @@ def render_template(key, **kwargs):
         "subject": db.get_setting("subject", "المادة"),
     }
     defaults.update({k: (v if v is not None else "") for k, v in kwargs.items()})
+    # أسماء عربية بديلة لبعض المتغيرات (تسهيلًا على المدرس في كتابة القوالب)
+    _aliases = {
+        "تركيز_الطالب": "focus_level",
+        "الطالب": "student",
+        "المادة": "subject",
+        "المعلم": "teacher",
+    }
+    for ar, en in _aliases.items():
+        if en in defaults and ar not in defaults:
+            defaults[ar] = defaults[en]
     try:
         # format_map مع _SafeDict: المتغيرات الناقصة تصبح فارغة بلا خطأ
         return body.format_map(_SafeDict(defaults))

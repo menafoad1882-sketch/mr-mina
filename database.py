@@ -183,6 +183,7 @@ def init_db():
         fee_exempt INTEGER DEFAULT 0, -- 1 = معفى من رسوم هذه الحصة (غير مطالَب بالدفع)
         exempt_reason TEXT,           -- سبب الإعفاء (يظهر للمدرس فقط)
         fee_charged REAL,             -- السعر الفعلي المستحق على الطالب في هذه الحصة (لقطة تاريخية: تخفيض أو سعر المجموعة)
+        focus_level INTEGER,          -- مدى تركيز الطالب في الحصة (نسبة مئوية 0-100، NULL = غير مسجّل)
         created_at TEXT,
         UNIQUE(session_id, student_id),
         FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
@@ -529,6 +530,8 @@ EXPECTED_COLUMNS = {
                    # السعر الفعلي المستحق على الطالب في هذه الحصة (لقطة تاريخية
                    # ثابتة: سعر التخفيض إن وُجد وقت الحفظ، وإلا سعر المجموعة).
                    "fee_charged": "REAL",
+                   # مدى تركيز الطالب في الحصة (نسبة مئوية 0-100، NULL = غير مسجّل)
+                   "focus_level": "INTEGER",
                    "created_at": "TEXT"},
     "exams": {"title": "TEXT", "group_id": "INTEGER", "year_id": "INTEGER",
               "total_marks": "REAL DEFAULT 0",

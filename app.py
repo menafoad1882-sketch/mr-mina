@@ -2549,6 +2549,15 @@ def save_attendance(sid):
         # نحفظ السعر المستحق كلقطة ثابتة على السجل (fee_charged) لعدم تأثّر السجلات
         # التاريخية بأي تعديل مستقبلي على التخفيض (البند 17).
         fee_charged = 0 if fee_exempt else fee
+        # مدى تركيز الطالب (نسبة مئوية 0-100). NULL لو لم يُرسَل (غير مسجّل).
+        focus_level = item.get("focus_level", None)
+        if focus_level in ("", None):
+            focus_level = None
+        else:
+            try:
+                focus_level = max(0, min(100, int(float(focus_level))))
+            except (ValueError, TypeError):
+                focus_level = None
         # المجموعة وقت التسجيل = مجموعة الطالب في تسجيل هذا العام (سجل تاريخي)
         enr = conn.execute(
             "SELECT group_id FROM enrollments WHERE student_id=? AND year_id=?",
@@ -2562,16 +2571,16 @@ def save_attendance(sid):
         conn.execute(
             "INSERT INTO attendance(session_id,student_id,group_id,student_name_snapshot,"
             "group_name_snapshot,status,homework,paid,amount,fee_exempt,exempt_reason,"
-            "fee_charged,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "fee_charged,focus_level,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(session_id,student_id) DO UPDATE SET "
             "group_id=excluded.group_id, student_name_snapshot=excluded.student_name_snapshot, "
             "group_name_snapshot=excluded.group_name_snapshot, status=excluded.status, "
             "homework=excluded.homework, paid=excluded.paid, amount=excluded.amount, "
             "fee_exempt=excluded.fee_exempt, exempt_reason=excluded.exempt_reason, "
-            "fee_charged=excluded.fee_charged",
+            "fee_charged=excluded.fee_charged, focus_level=excluded.focus_level",
             (sid, st_id, grp_id, sname, gname, status, homework, paid, amount,
-             fee_exempt, exempt_reason, fee_charged, db.now()))
+             fee_exempt, exempt_reason, fee_charged, focus_level, db.now()))
 
         # تذكير المتأخرات: لو الطالب حاضر ودفع أقل من سعر الحصة.
         # المعفى من الرسوم لا يُنشأ له تذكير إطلاقًا (غير مطالَب بالدفع) — ونمسح أي
@@ -2672,6 +2681,10 @@ def session_whatsapp(sid):
                  f"- الحالة: {status_txt}"]
         if r["homework"] and r["homework"] != "none":
             lines.append(f"- الواجب: {HW_AR.get(r['homework'], '-')}")
+        # مدى تركيز الطالب (لو مسجّل) — يظهر لولي الأمر
+        _focus = r["focus_level"] if ("focus_level" in r.keys()) else None
+        if _focus is not None:
+            lines.append(f"- مدى التركيز: {_focus}%")
         if se["title"]:
             lines.append(f"- موضوع الحصة: {se['title']}")
         lines.append(f"\nمع تحيات {tname}")
@@ -2689,13 +2702,17 @@ def session_whatsapp(sid):
 def whatsapp_level():
     """صفحة اختيار مستوى كل طالب قبل الإرسال (المدرس يختار المستوى)"""
     conn = db.get_db()
+    yid = active_year_id()
     gid = request.args.get("group", "")
-    sql = ("SELECT s.*, g.name group_name FROM students s "
-           "LEFT JOIN groups g ON s.group_id=g.id "
-           "WHERE (s.status IS NULL OR s.status<>'inactive')")
-    params = []
+    # الطلاب المسجّلون النشطون في العام الدراسي الحالي فقط (عبر enrollments)،
+    # بمجموعتهم في هذا العام — لا نعرض مجموعات/طلاب أعوام سابقة أو محذوفة.
+    sql = ("SELECT s.*, g.name group_name FROM enrollments e "
+           "JOIN students s ON e.student_id=s.id "
+           "LEFT JOIN groups g ON e.group_id=g.id "
+           "WHERE e.year_id=? AND (e.status IS NULL OR e.status<>'inactive')")
+    params = [yid]
     if gid:
-        sql += " AND s.group_id=?"
+        sql += " AND e.group_id=?"
         params.append(gid)
     sql += " ORDER BY s.name"
     studs = conn.execute(sql, params).fetchall()
@@ -2706,7 +2723,9 @@ def whatsapp_level():
                      "group_name": s["group_name"] or "-",
                      "phone": s["parent_phone"],
                      "avg": avg_pct, "att": att_pct, "suggested": suggested})
-    grps = conn.execute("SELECT * FROM groups ORDER BY name").fetchall()
+    # مجموعات العام الدراسي الحالي فقط في القائمة المنسدلة
+    grps = conn.execute("SELECT * FROM groups WHERE year_id=? ORDER BY name",
+                        (yid,)).fetchall()
     conn.close()
     return render_template("level_select.html", students=rows, groups=grps,
                            sel_group=gid, levels=LEVELS)

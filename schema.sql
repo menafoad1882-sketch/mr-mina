@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     fee_exempt INTEGER DEFAULT 0,
     exempt_reason TEXT,
     fee_charged REAL,
+    focus_level INTEGER,
     created_at TEXT
 );
 
