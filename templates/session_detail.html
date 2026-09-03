@@ -50,7 +50,7 @@
   {% if students %}
   <div class="table-wrap">
   <table id="attTable">
-    <tr><th>الطالب</th><th>الحالة</th><th>الواجب</th><th>الرسوم</th><th>دفع؟</th><th>المبلغ</th></tr>
+    <tr><th>الطالب</th><th>الحالة</th><th>الواجب</th><th>التركيز</th><th>الرسوم</th><th>دفع؟</th><th>المبلغ</th></tr>
     {% for s in students %}
     {% set ex = existing.get(s.id) %}
     {% set sfee = eff_fee.get(s.id, group_fee) %}
@@ -82,6 +82,15 @@
           <button type="button" class="hw-btn {{ 'act-not' if ex and ex.homework=='not_done' }}" data-hw="not_done" onclick="pickHw(this,'not_done')">❌ لم يعمله</button>
         </div>
         <input type="hidden" class="hw-val" value="{{ ex.homework if ex else 'none' }}">
+      </td>
+      <td>
+        {% set fv = ex.focus_level if (ex and ex.focus_level is not none) else 100 %}
+        <div style="display:flex;align-items:center;gap:6px;min-width:130px">
+          <input type="range" class="focus-range" min="0" max="100" step="5" value="{{ fv }}"
+                 oninput="this.closest('td').querySelector('.focus-out').textContent=this.value+'%'"
+                 style="flex:1;accent-color:#2563eb">
+          <span class="focus-out" style="font-size:.8rem;font-weight:700;min-width:34px">{{ fv }}%</span>
+        </div>
       </td>
       <td>
         <label style="display:flex;align-items:center;gap:5px;font-size:.8rem;cursor:pointer">
@@ -227,7 +236,8 @@ function save(){
       paid: row.querySelector('.paid-chk').checked,
       amount: parseFloat(row.querySelector('.amount-val').value||0),
       fee_exempt: exempt ? 1 : 0,
-      exempt_reason: exempt ? _reasonOf(row) : ''
+      exempt_reason: exempt ? _reasonOf(row) : '',
+      focus_level: parseInt(row.querySelector('.focus-range').value)
     });
   });
   fetch('{{ url_for("save_attendance", sid=se.id) }}',{

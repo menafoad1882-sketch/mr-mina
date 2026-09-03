@@ -2,6 +2,73 @@
 {% block title %}الطلاب{% endblock %}
 {% block heading %}الطلاب{% endblock %}
 {% block content %}
+<style>
+/* ═══ إصلاح مستقل ومضمون لنافذتَي إضافة/تعديل الطالب (v4) ═══
+   قواعد عالية الأولوية (!important) مباشرة على النافذتين، فلا تتأثر بأي CSS قديم/ناقص.
+   البنية: صندوق فلكس عمودي بارتفاع أقصى داخل الشاشة + جسم يتمرّر داخليًا + تذييل ثابت. */
+#addStudent.modal, #editStudent.modal{
+  align-items:flex-start !important;
+  padding:12px !important;
+  overflow-y:auto !important;
+}
+#addStudent .modal-box, #editStudent .modal-box{
+  display:flex !important;
+  flex-direction:column !important;
+  max-height:calc(100vh - 24px) !important;
+  height:auto !important;
+  overflow:hidden !important;
+  padding:0 !important;
+  margin:auto !important;
+}
+@supports (height:100dvh){
+  #addStudent .modal-box, #editStudent .modal-box{ max-height:calc(100dvh - 24px) !important; }
+}
+#addStudent .modal-head, #editStudent .modal-head{
+  flex:0 0 auto !important;
+  margin:0 !important;
+  padding:16px 20px 12px !important;
+  border-bottom:1px solid #e5e7eb !important;
+}
+#addStudent .modal-form, #editStudent .modal-form{
+  display:flex !important;
+  flex-direction:column !important;
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+#addStudent .modal-body, #editStudent .modal-body{
+  flex:1 1 auto !important;
+  overflow-y:auto !important;
+  -webkit-overflow-scrolling:touch !important;
+  min-height:0 !important;
+  padding:16px 20px 10px !important;
+}
+#addStudent .modal-footer, #editStudent .modal-footer{
+  flex:0 0 auto !important;
+  flex-shrink:0 !important;
+  position:sticky !important;
+  bottom:0 !important;
+  z-index:5 !important;
+  display:flex !important;
+  gap:10px !important;
+  flex-wrap:wrap !important;
+  padding:12px 20px !important;
+  background:var(--card, #fff) !important;
+  border-top:1px solid #e5e7eb !important;
+  border-radius:0 0 16px 16px !important;
+}
+/* أزرار إجراءات الطالب (الملف / تعديل / تعطيل) جنب بعضها في صف واحد لا تنكسر لأسفل */
+table td.actions{
+  display:flex !important;
+  flex-direction:row !important;
+  flex-wrap:nowrap !important;
+  gap:6px !important;
+  align-items:center !important;
+  justify-content:flex-start !important;
+  white-space:nowrap !important;
+}
+table td.actions .btn{ flex:0 0 auto !important; }
+</style>
 <div class="toolbar">
   <button class="btn" onclick="openModal('addStudent')">➕ إضافة طالب</button>
   <a href="{{ url_for('whatsapp_level', group=sel_group) }}" class="btn wa">💬 إرسال المستوى لأولياء الأمور</a>
@@ -84,7 +151,7 @@
 <!-- Add modal -->
 <div class="modal" id="addStudent">
   <div class="modal-box modal-flex">
-    <div class="modal-head"><h3>إضافة طالب جديد</h3>
+    <div class="modal-head"><h3>إضافة طالب جديد <span style="font-size:.6rem;color:#94a3b8;font-weight:400">v5</span></h3>
       <button class="close" onclick="closeModal('addStudent')">&times;</button></div>
     <form method="post" action="{{ url_for('add_student') }}" class="modal-form">
       <div class="modal-body">

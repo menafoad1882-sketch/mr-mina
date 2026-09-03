@@ -132,7 +132,7 @@ html[data-theme="dark"] .tt{background:rgba(30,41,59,.9)}
     {% if att %}
     <div class="table-wrap">
     <table>
-      <tr><th>التاريخ</th><th>الحصة</th><th>الحالة</th><th>الواجب</th></tr>
+      <tr><th>التاريخ</th><th>الحصة</th><th>الحالة</th><th>الواجب</th><th>التركيز</th></tr>
       {% for a in att %}
       <tr>
         <td>{{ a.date }}</td>
@@ -141,6 +141,9 @@ html[data-theme="dark"] .tt{background:rgba(30,41,59,.9)}
         <td>{% if a.homework=='done' %}<span class="badge done">✅ عمله</span>
             {% elif a.homework=='incomplete' %}<span class="badge late">⚠️ غير مكتمل</span>
             {% elif a.homework=='not_done' %}<span class="badge not">❌ لم يعمله</span>
+            {% else %}<span class="badge gray">-</span>{% endif %}</td>
+        <td>{% if a.focus_level is not none %}
+              <span class="badge {{ 'done' if a.focus_level>=70 else ('late' if a.focus_level>=40 else 'not') }}">🎯 {{ a.focus_level }}%</span>
             {% else %}<span class="badge gray">-</span>{% endif %}</td>
       </tr>
       {% endfor %}
