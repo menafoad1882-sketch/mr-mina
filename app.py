@@ -1262,6 +1262,118 @@ def add_group():
     return redirect(url_for("groups"))
 
 
+@app.route("/groups/<int:gid>/edit", methods=["POST"])
+@login_required
+def edit_group(gid):
+    """تعديل بيانات المجموعة (الاسم/الصف/سعر الحصة) مع خيار تحديث رسوم الطلاب.
+
+    عند تعديل سعر المجموعة، يمكن (اختياريًا، مفعّل افتراضيًا) تحديث سعر التخفيض
+    الخاص بالطلاب المسجّلين بها في العام الحالي ليساوي السعر الجديد — فلا يُحتسب
+    فارق السعر القديم كمديونية. لا يمسّ السجلات المالية التاريخية (attendance.
+    fee_charged لقطة ثابتة)، والسعر الجديد يُطبَّق على الحصص القادمة تلقائيًا.
+    """
+    if _readonly_year_guard():
+        return redirect(url_for("groups"))
+    conn = db.get_db()
+    yid = active_year_id()
+    grp = conn.execute("SELECT * FROM groups WHERE id=?", (gid,)).fetchone()
+    if not grp:
+        conn.close()
+        flash("المجموعة غير موجودة", "error")
+        return redirect(url_for("groups"))
+    name = request.form.get("name", "").strip() or grp["name"]
+    grade = request.form.get("grade", "").strip()
+    try:
+        new_fee = float(request.form.get("fee") or 0)
+    except (ValueError, TypeError):
+        new_fee = grp["fee"] or 0
+    conn.execute("UPDATE groups SET name=?, grade=?, fee=? WHERE id=?",
+                 (name, grade, new_fee, gid))
+    updated = 0
+    if request.form.get("apply_to_students"):
+        # حدّث سعر التخفيض للطلاب المسجّلين في هذه المجموعة بالعام الحالي.
+        # نضبط discount_fee=السعر الجديد فيصبح هو السعر الفعلي المستحق (لا فرق دَين).
+        cur = conn.execute(
+            "UPDATE enrollments SET discount_fee=? WHERE group_id=? AND year_id=?",
+            (new_fee, gid, yid))
+        try:
+            updated = cur.rowcount if cur.rowcount is not None else 0
+        except Exception:
+            updated = 0
+
+    # تصحيح رجعي للسجلات السابقة (تصحيح خطأ إدخال سعر، وليس تخفيضًا): يحدّث سعر
+    # الحصص السابقة لهذه المجموعة وسجلات الحضور، ويعيد حساب المتبقّي فلا يظهر فرق
+    # السعر الخاطئ كمديونية متأخرة. لا يمسّ المبالغ المدفوعة فعلًا (amount).
+    past_sessions = 0
+    past_rows = 0
+    if request.form.get("update_past"):
+        syid = grp["year_id"] or yid
+        # (1) حدّث سعر الحصص السابقة لهذه المجموعة في نفس عام المجموعة
+        cur = conn.execute(
+            "UPDATE sessions SET fee=? WHERE group_id=? AND year_id=?",
+            (new_fee, gid, syid))
+        try:
+            past_sessions = cur.rowcount if cur.rowcount is not None else 0
+        except Exception:
+            past_sessions = 0
+        # معرّفات حصص هذه المجموعة (لتحديث سجلات الحضور والتذكيرات المرتبطة بها)
+        sess_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM sessions WHERE group_id=? AND year_id=?",
+            (gid, syid)).fetchall()]
+        if sess_ids:
+            ph = ",".join("?" * len(sess_ids))
+            # (2) حدّث السعر المستحق (fee_charged) لكل سجلات الحضور (عدا المعفيين)
+            cur = conn.execute(
+                f"UPDATE attendance SET fee_charged=? "
+                f"WHERE session_id IN ({ph}) "
+                f"AND (fee_exempt IS NULL OR fee_exempt=0)",
+                [new_fee, *sess_ids])
+            try:
+                past_rows = cur.rowcount if cur.rowcount is not None else 0
+            except Exception:
+                past_rows = 0
+            # (2-ب) صحّح مبلغ الطلاب الدافعين إلى السعر الجديد (كان مسجّلًا بالسعر
+            #       الخاطئ فيصبح صحيحًا) — تصحيح خطأ إدخال لا يُحتسب فرقه كدخل زائد.
+            conn.execute(
+                f"UPDATE attendance SET amount=? "
+                f"WHERE session_id IN ({ph}) AND paid=1 "
+                f"AND (fee_exempt IS NULL OR fee_exempt=0)",
+                [new_fee, *sess_ids])
+            # (2-ج) صحّح سعر التخفيض المخزّن على تسجيل الطلاب (enrollments) للمجموعة
+            conn.execute(
+                "UPDATE enrollments SET discount_fee=? WHERE group_id=? AND year_id=?",
+                (new_fee, gid, syid))
+            # (3) أعد حساب المتبقّي: احذف تذكيرات لم يعد لها متبقٍّ (المدفوع ≥ السعر الجديد)
+            #     وحدّث الباقية بالمتبقّي الصحيح = السعر الجديد − المدفوع (بعد التصحيح).
+            for r in conn.execute(
+                    f"SELECT a.student_id, a.session_id, a.amount, a.status "
+                    f"FROM attendance a WHERE a.session_id IN ({ph}) "
+                    f"AND (a.fee_exempt IS NULL OR a.fee_exempt=0)",
+                    sess_ids).fetchall():
+                remaining = round(new_fee - (r["amount"] or 0), 2)
+                conn.execute(
+                    "DELETE FROM reminders WHERE student_id=? AND session_id=? "
+                    "AND status='pending'", (r["student_id"], r["session_id"]))
+                if r["status"] in ("present", "late") and remaining > 0:
+                    due = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                    conn.execute(
+                        "INSERT INTO reminders(student_id,session_id,remaining,due_date,"
+                        "due_time,method,status,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                        (r["student_id"], r["session_id"], remaining, due,
+                         "09:00", "whatsapp", "pending", db.now()))
+
+    conn.commit()
+    conn.close()
+    msg = f"تم تحديث المجموعة «{name}» (سعر الحصة: {new_fee:g} ج)."
+    if request.form.get("apply_to_students"):
+        msg += f" وطُبّق السعر الجديد على {updated} طالبًا مسجّلًا بها."
+    if request.form.get("update_past"):
+        msg += (f" وصُحِّحت {past_sessions} حصة سابقة و{past_rows} سجل حضور بالسعر"
+                f" الجديد وأُعيد حساب المتأخرات.")
+    flash(msg, "success")
+    return redirect(url_for("groups"))
+
+
 @app.route("/groups/delete/<int:gid>")
 @login_required
 def delete_group(gid):

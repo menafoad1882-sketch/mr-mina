@@ -567,7 +567,7 @@ def _batch_size(table):
     return _TABLE_BATCH.get(table, _DEFAULT_BATCH)
 
 
-def backup_all(progress=True):
+def backup_all(progress=True, skip_schema_check=True):
     """رفع نسخة كاملة من كل الجداول للسحابة عبر upsert آمن على دفعات (idempotent).
 
     السبب الجذري لخطأ «statement timeout» (57014): كان يُرفع كل صفوف الجدول في
@@ -576,25 +576,30 @@ def backup_all(progress=True):
 
     الاعتماد على مفتاح التعارض الطبيعي (id لأغلب الجداول، وأعمدة مركّبة للبعض)
     يضمن تحديث السجلات الموجودة بدل إنشاء نسخ مكررة عند تكرار النسخ أو إعادة دفعة.
+
+    skip_schema_check: عند True (الافتراضي) يبدأ الرفع مباشرةً بلا فحص مخطط مسبق
+    (أسرع). زر «فحص التوافق» يبقى متاحًا يدويًا كميزة مستقلة (schema_check).
     """
     client = _client()
     if not client:
         return False, "Supabase غير مفعّل أو غير مضبوط"
 
-    # (البند 13) تحقّق مسبق من المخطط قبل أي محاولة رفع: لو ناقص قيد/عمود/جدول
-    # نوقف الآن ونعرض ما يجب إصلاحه بالضبط — بدل ظهور خطأ 42P10/مخطط أثناء الرفع.
-    if progress:
-        _progress_reset()
-        _progress_update(phase="schema_check", message="جارٍ فحص توافق المخطط...")
-    chk = schema_check()
-    if chk.get("connected") and not chk.get("ok"):
-        msg = ("توقّف الرفع قبل البدء: مخطط Supabase غير متوافق بعد.\n"
-               + chk.get("message", "")
-               + "\n\nحمّل «سكربت مزامنة Supabase» وشغّله في SQL Editor ثم أعد الفحص.")
+    # فحص المخطط المسبق أصبح اختياريًا: افتراضيًا نتخطّاه ونبدأ الرفع فورًا لتفادي
+    # التأخير. لمن يريد التحقّق قبل الرفع، مرّر skip_schema_check=False، أو استخدم
+    # زر «فحص التوافق» المستقل في الإعدادات.
+    if not skip_schema_check:
         if progress:
-            _progress_update(running=False, phase="error", ok=False, error=msg,
-                             message="توقّف: المخطط غير متوافق")
-        return False, msg
+            _progress_reset()
+            _progress_update(phase="schema_check", message="جارٍ فحص توافق المخطط...")
+        chk = schema_check()
+        if chk.get("connected") and not chk.get("ok"):
+            msg = ("توقّف الرفع قبل البدء: مخطط Supabase غير متوافق بعد.\n"
+                   + chk.get("message", "")
+                   + "\n\nحمّل «سكربت مزامنة Supabase» وشغّله في SQL Editor ثم أعد الفحص.")
+            if progress:
+                _progress_update(running=False, phase="error", ok=False, error=msg,
+                                 message="توقّف: المخطط غير متوافق")
+            return False, msg
 
     conn = db.get_db()
     try:
