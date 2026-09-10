@@ -19,6 +19,8 @@
       <td>{{ '%g'|format(g.fee) }} ج</td>
       <td class="actions">
         <a href="{{ url_for('students', group=g.id) }}" class="btn sm ghost">عرض الطلاب</a>
+        <button type="button" class="btn sm"
+          onclick='editGroup({{ g.id }}, {{ g.name|tojson }}, {{ (g.grade or "")|tojson }}, {{ g.fee|float }})'>✏️ تعديل</button>
         <a href="{{ url_for('group_history', gid=g.id) }}" class="btn sm">📋 سجل الحصص</a>
         <a href="{{ url_for('delete_group', gid=g.id) }}" class="btn sm red"
            onclick="return confirm('حذف المجموعة؟ الطلاب مش هيتحذفوا.')">حذف</a>
@@ -30,6 +32,35 @@
   {% else %}
   <div class="empty"><div class="big">🗂️</div>لا توجد مجموعات. أضف أول مجموعة.</div>
   {% endif %}
+</div>
+
+<div class="modal" id="editGroup">
+  <div class="modal-box">
+    <div class="modal-head"><h3>تعديل المجموعة</h3>
+      <button class="close" onclick="closeModal('editGroup')">&times;</button></div>
+    <form method="post" id="editGroupForm">
+      <div class="field"><label>اسم المجموعة *</label>
+        <input name="name" id="eg_name" required></div>
+      <div class="field"><label>الصف الدراسي</label>
+        <input name="grade" id="eg_grade"></div>
+      <div class="field"><label>سعر الحصة (جنيه)</label>
+        <input name="fee" id="eg_fee" type="number" step="any"></div>
+      <div class="field" style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+          <input type="checkbox" name="apply_to_students" value="1" checked>
+          <span>تطبيق السعر الجديد على الطلاب المسجّلين بالمجموعة (للحصص القادمة)</span>
+        </label>
+      </div>
+      <div class="field" style="background:#fef9c3;border:1px solid #fde047;border-radius:10px;padding:10px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+          <input type="checkbox" name="update_past" value="1">
+          <span>🛠️ تصحيح الحصص والسجلات السابقة لهذه المجموعة بالسعر الجديد</span>
+        </label>
+        <p class="muted" style="font-size:.78rem;margin:6px 0 0">استخدمه لتصحيح خطأ إدخال سعر: يحدّث رسوم الحصص السابقة وسجلات الحضور ويعيد حساب المتأخرات فلا يظهر فرق السعر الخاطئ كمديونية. لا يمسّ المبالغ المدفوعة فعلًا.</p>
+      </div>
+      <button class="btn green" type="submit">حفظ التعديلات</button>
+    </form>
+  </div>
 </div>
 
 <div class="modal" id="addGroup">
@@ -47,4 +78,16 @@
     </form>
   </div>
 </div>
+
+{% block scripts %}
+<script>
+function editGroup(id, name, grade, fee){
+  document.getElementById('editGroupForm').action = '/groups/'+id+'/edit';
+  document.getElementById('eg_name').value = name;
+  document.getElementById('eg_grade').value = grade || '';
+  document.getElementById('eg_fee').value = fee;
+  openModal('editGroup');
+}
+</script>
+{% endblock %}
 {% endblock %}

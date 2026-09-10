@@ -68,6 +68,16 @@ table td.actions{
   white-space:nowrap !important;
 }
 table td.actions .btn{ flex:0 0 auto !important; }
+
+/* تمييز الحقل النشط في نموذج إضافة/تعديل الطالب (تنقّل بالأسهم) */
+#addStudent input:focus, #addStudent select:focus, #addStudent textarea:focus,
+#editStudent input:focus, #editStudent select:focus, #editStudent textarea:focus{
+  background:#eff6ff !important;
+  outline:2px solid #2563eb !important;
+  outline-offset:1px !important;
+  box-shadow:0 0 0 3px rgba(37,99,235,.20) !important;
+  border-color:#2563eb !important;
+}
 </style>
 <div class="toolbar">
   <button class="btn" onclick="openModal('addStudent')">➕ إضافة طالب</button>
@@ -293,6 +303,28 @@ function editStudent(id,name,phone,parent,grade,group,notes,discFee,discReason){
   document.getElementById('e_disc').style.display = hasDisc ? 'block' : 'none';
   openModal('editStudent');
 }
+/* تنقّل بين حقول نموذجَي إضافة/تعديل الطالب بالسهمين لأعلى/لأسفل (إدخال سريع) */
+function _fields(modal){
+  return Array.prototype.filter.call(
+    modal.querySelectorAll('input:not([type=hidden]):not([type=checkbox]),select,textarea'),
+    function(el){ return el.offsetParent !== null && !el.disabled && !el.readOnly; });
+}
+function _arrowNav(e){
+  if(e.key!=='ArrowUp' && e.key!=='ArrowDown') return;
+  var modal = e.target.closest('#addStudent, #editStudent');
+  if(!modal) return;
+  // في مربّع النص (ملاحظات) نترك الأسهم للتنقّل داخل النص
+  if(e.target.tagName==='TEXTAREA') return;
+  var f=_fields(modal); var i=f.indexOf(e.target);
+  if(i<0) return;
+  e.preventDefault();
+  var next = e.key==='ArrowDown' ? i+1 : i-1;
+  if(next<0) next=f.length-1; else if(next>=f.length) next=0;
+  var el=f[next];
+  el.focus();
+  if(el.select){ try{ el.select(); }catch(_){} }
+}
+document.addEventListener('keydown', _arrowNav);
 </script>
 {% endblock %}
 {% endblock %}

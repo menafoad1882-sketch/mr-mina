@@ -54,7 +54,7 @@
     {% for s in students %}
     {% set ex = existing.get(s.id) %}
     {% set sfee = eff_fee.get(s.id, group_fee) %}
-    {% set has_disc = (s.discount_fee is defined and s.discount_fee is not none) %}
+    {% set has_disc = (s.discount_fee is defined and s.discount_fee is not none and s.discount_fee != group_fee) %}
     <tr data-sid="{{ s.id }}" data-exempt="{{ '1' if ex and ex.fee_exempt else '0' }}" data-fee="{{ sfee }}">
       <td><b>{{ s.name }}</b>
         {% if has_disc %}
@@ -137,6 +137,10 @@
 .hw-btn.act-done{background:#dcfce7;color:#15803d;border-color:#86efac}
 .hw-btn.act-incomplete{background:#fef9c3;color:#a16207;border-color:#fde047}
 .hw-btn.act-not{background:#fee2e2;color:#b91c1c;border-color:#fca5a5}
+/* تظليل صف الطالب النشط أثناء التنقّل بالأسهم */
+#attTable tr.att-active{background:#e0f2fe !important;box-shadow:inset 0 0 0 2px #38bdf8}
+#attTable tr.att-active td:first-child{border-inline-start:4px solid #0284c7}
+html[data-theme="dark"] #attTable tr.att-active{background:#0c4a6e !important}
 </style>
 
 {% block scripts %}
@@ -249,6 +253,43 @@ function save(){
   });
 }
 recalc();
+
+/* ═══ تظليل صف الطالب والتنقّل بين الطلاب بالأسهم في جدول الحضور ═══ */
+(function(){
+  function rows(){ return Array.prototype.slice.call(
+    document.querySelectorAll('#attTable tr[data-sid]')); }
+  var idx=-1;
+  function highlight(i, focusFirstBtn){
+    var r=rows(); if(!r.length) return;
+    if(i<0) i=0; if(i>=r.length) i=r.length-1;
+    r.forEach(function(x){ x.classList.remove('att-active'); });
+    var row=r[i]; row.classList.add('att-active'); idx=i;
+    row.scrollIntoView({block:'nearest'});
+    if(focusFirstBtn){
+      var b=row.querySelector('.st-btn'); if(b){ try{ b.focus(); }catch(e){} }
+    }
+  }
+  // تفعيل الصف عند النقر بالماوس داخله (لمزامنة مؤشّر التنقّل)
+  document.addEventListener('click', function(e){
+    var row=e.target.closest && e.target.closest('#attTable tr[data-sid]');
+    if(!row) return;
+    var r=rows(); var i=r.indexOf(row); if(i>=0){ r.forEach(function(x){x.classList.remove('att-active');}); row.classList.add('att-active'); idx=i; }
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+    // لا نتدخّل أثناء الكتابة في حقول نصية/أرقام/مربّع النص
+    var t=e.target;
+    if(t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.tagName==='SELECT')){
+      // نسمح للأسهم بالعمل فقط لو التركيز على زر داخل الجدول
+      return;
+    }
+    var r=rows(); if(!r.length) return;
+    e.preventDefault();  // امنع تمرير الصفحة بالكامل
+    var next = (e.key==='ArrowDown') ? idx+1 : idx-1;
+    if(idx<0) next = (e.key==='ArrowDown') ? 0 : r.length-1;
+    highlight(next, true);
+  });
+})();
 </script>
 {% endblock %}
 {% endblock %}
