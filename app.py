@@ -4281,12 +4281,18 @@ def paper_exams():
 @app.route("/paper-exams/add", methods=["POST"])
 @login_required
 def add_paper_exam():
+    if _readonly_year_guard():
+        return redirect(url_for("exams"))
     conn = db.get_db()
+    # السبب الجذري لعدم ظهور الامتحانات الورقية الجديدة: كانت تُنشأ بلا year_id،
+    # بينما قائمة الامتحانات تُفلتر WHERE e.year_id=?، فلا تظهر إطلاقًا. نضيف
+    # year_id للعام النشط + status='published' (كباقي الامتحانات).
     cur = conn.execute(
-        "INSERT INTO exams(title,group_id,duration,is_online,total_marks,created_at) "
-        "VALUES(?,?,?,?,?,?)",
+        "INSERT INTO exams(title,group_id,year_id,duration,is_online,total_marks,"
+        "status,created_at) VALUES(?,?,?,?,?,?,?,?)",
         (request.form["title"], request.form.get("group_id") or None,
-         0, 0, float(request.form.get("total_marks") or 0), db.now()))
+         active_year_id(), 0, 0,
+         float(request.form.get("total_marks") or 0), "published", db.now()))
     eid = cur.lastrowid
     conn.commit()
     conn.close()
