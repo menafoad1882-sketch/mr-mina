@@ -73,7 +73,7 @@
           <button type="button" class="st-btn {{ 'act-late' if ex and ex.status=='late' }}" data-st="late" onclick="pick(this,'late')">متأخر</button>
           <button type="button" class="st-btn {{ 'act-absent' if ex and ex.status=='absent' }}" data-st="absent" onclick="pick(this,'absent')">غائب</button>
         </div>
-        <input type="hidden" class="status-val" value="{{ ex.status if ex else 'present' }}">
+        <input type="hidden" class="status-val" value="{{ ex.status if ex else '' }}">
       </td>
       <td>
         <div class="hw-btns" style="display:flex;gap:5px;flex-wrap:wrap">
@@ -145,7 +145,6 @@ html[data-theme="dark"] #attTable tr.att-active{background:#0c4a6e !important}
 
 {% block scripts %}
 <script>
-const FEE = {{ se.fee }};
 function saveNotes(){
   const notes=document.getElementById('sessionNotes').value;
   const title=document.getElementById('sessionTitle').value;
@@ -244,13 +243,23 @@ function save(){
       focus_level: parseInt(row.querySelector('.focus-range').value)
     });
   });
+  // عدد الطلاب الذين لم تُحدَّد حالتهم (لن يُسجَّلوا) — لتنبيه المدرس بوضوح
+  const unmarked = records.filter(r => !['present','late','absent'].includes(r.status)).length;
   fetch('{{ url_for("save_attendance", sid=se.id) }}',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({records})
   }).then(r=>r.json()).then(d=>{
-    document.getElementById('saveMsg').textContent='✅ تم الحفظ بنجاح';
-    setTimeout(()=>document.getElementById('saveMsg').textContent='',3000);
-  });
+    var m = document.getElementById('saveMsg');
+    if(d.ok){
+      var txt = '✅ تم الحفظ بنجاح';
+      var sk = (d.skipped || unmarked);
+      if(sk > 0){ txt += ' — لم يُسجَّل ' + sk + ' طالب (لم تُحدَّد حالتهم)'; }
+      m.textContent = txt;
+      setTimeout(()=>{ m.textContent=''; },6000);
+    }else{
+      m.textContent = '❌ ' + (d.error || 'فشل الحفظ');
+    }
+  }).catch(()=>{ document.getElementById('saveMsg').textContent='❌ تعذّر الحفظ'; });
 }
 recalc();
 

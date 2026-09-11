@@ -17,8 +17,10 @@
 
 <div class="card">
   {% if results %}
-  <div class="toolbar">
+  <div class="toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <button class="btn wa" onclick="openAll()">📤 إرسال كل الدرجات واتساب</button>
+    <button type="button" class="btn ghost sm" onclick="resetSent()">↺ تصفير علامات الإرسال</button>
+    <span class="muted" style="font-size:.82rem">✅ = تم فتح الإرسال لهذا الطالب</span>
   </div>
   <div class="table-wrap">
   <table>
@@ -44,7 +46,8 @@
            {{ '✍️ تصحيح' if r.status=='pending' else '👁️ مراجعة' }}</a>
         {% endif %}
         {% if r.status != 'pending' %}
-        <a href="{{ r.link }}" target="_blank" class="btn sm wa wa-link">💬 إرسال</a>
+        <a href="{{ r.link }}" target="_blank" class="btn sm wa wa-link"
+           data-sid="{{ r.student_id }}" onclick="markSent(this)">💬 إرسال</a>
         {% endif %}
       </td>
     </tr>
@@ -65,11 +68,48 @@
 </div>
 {% block scripts %}
 <script>
+// مفتاح تخزين علامات الإرسال في المتصفح (خاص بهذا الامتحان) — تبقى محفوظة
+// حتى بعد تحديث الصفحة أو إغلاقها، فلا تتلخبط في مَن أرسلت له ومَن لم تُرسل.
+var SENT_KEY = 'wa_sent_exam_{{ ex.id }}';
+function _getSent(){
+  try{ return JSON.parse(localStorage.getItem(SENT_KEY) || '{}'); }
+  catch(e){ return {}; }
+}
+function _saveSent(o){
+  try{ localStorage.setItem(SENT_KEY, JSON.stringify(o)); }catch(e){}
+}
+function _applyMark(a){
+  a.classList.add('sent');
+  a.style.background = '#16a34a';
+  a.style.opacity = '.9';
+  if(a.textContent.indexOf('✅') === -1){ a.textContent = '✅ تم الإرسال'; }
+}
+function markSent(a){
+  var sid = a.getAttribute('data-sid');
+  var o = _getSent(); o[sid] = 1; _saveSent(o);
+  _applyMark(a);
+}
+function _restoreMarks(){
+  var o = _getSent();
+  document.querySelectorAll('.wa-link').forEach(function(a){
+    if(o[a.getAttribute('data-sid')]){ _applyMark(a); }
+  });
+}
+function resetSent(){
+  if(!confirm('تصفير كل علامات «تم الإرسال» لهذا الامتحان؟')) return;
+  try{ localStorage.removeItem(SENT_KEY); }catch(e){}
+  document.querySelectorAll('.wa-link').forEach(function(a){
+    a.classList.remove('sent');
+    a.style.background=''; a.style.opacity='';
+    a.textContent='💬 إرسال';
+  });
+}
 function openAll(){
   const links=document.querySelectorAll('.wa-link');
   if(links.length>5 && !confirm('هيفتح '+links.length+' نافذة واتساب. متأكد؟')) return;
-  links.forEach((a,i)=>setTimeout(()=>window.open(a.href,'_blank'),i*600));
+  links.forEach((a,i)=>setTimeout(function(){ window.open(a.href,'_blank'); markSent(a); },i*600));
 }
+document.addEventListener('DOMContentLoaded', _restoreMarks);
 </script>
 {% endblock %}
 {% endblock %}
