@@ -603,6 +603,16 @@ def teacher_name():
     return db.get_setting("teacher_name", "الأستاذ")
 
 
+def _wa_code(val):
+    """يغلّف قيمة (كود/كلمة مرور/اسم مستخدم) بعلامة backtick لعرضها في واتساب
+    بخط monospace بخلفية مميّزة. الفائدة:
+      1) واتساب لا يحوّل الأرقام إلى رابط اتصال أزرق (فيمكن نسخها/تحديدها بسهولة).
+      2) القيمة تظهر واضحة ومنفصلة عن باقي النص.
+    نزيل أي backtick داخل القيمة نفسها حتى لا نكسر التنسيق."""
+    v = str(val if val is not None else "").replace("`", "")
+    return f"`{v}`"
+
+
 def site_url():
     """
     الرابط العام للموقع:
@@ -719,11 +729,14 @@ def compute_notifications(yid=None):
     except Exception:
         conn.rollback()
     try:
+        # المتأخرات المالية للعام النشط فقط: نربط التذكير بحصته لتصفية عام الحصة،
+        # حتى لا تظهر متأخرات عام دراسي سابق ضمن تنبيهات العام الحالي.
         unpaid = conn.execute(
             "SELECT rem.student_id, s.name, COALESCE(SUM(rem.remaining),0) total, "
             "COUNT(*) n FROM reminders rem JOIN students s ON rem.student_id=s.id "
-            "WHERE rem.status='pending' AND rem.remaining>0 "
-            "GROUP BY rem.student_id, s.name ORDER BY total DESC", ()).fetchall()
+            "JOIN sessions se ON rem.session_id=se.id "
+            "WHERE rem.status='pending' AND rem.remaining>0 AND se.year_id=? "
+            "GROUP BY rem.student_id, s.name ORDER BY total DESC", (yid,)).fetchall()
     except Exception:
         conn.rollback()
     try:
@@ -1923,7 +1936,7 @@ def send_qr_whatsapp(sid):
     msg = (f"السلام عليكم\n"
            f"كود QR الخاص بالطالب/ة *{st['name']}* في مادة {subj}:\n\n"
            f"المجموعة: {st['group_name'] or '-'}\n"
-           f"كود الطالب: {st['code']}\n\n"
+           f"كود الطالب: {_wa_code(st['code'])}\n\n"
            f"رابط عرض الكود (QR) للحضور والامتحان:\n{qr_url}\n\n"
            f"مع تحيات {tname}")
     messages = []
@@ -1956,10 +1969,10 @@ def _student_login_message(st):
              f"بيانات دخول الطالب لمنصة مادة {subj}:",
              "",
              "اسم المستخدم / كود الدخول:",
-             f"{st['code']}",
+             _wa_code(st['code']),
              "",
              "كلمة المرور:",
-             f"{st['exam_password']}"]
+             _wa_code(st['exam_password'])]
     if card_link:
         lines += ["", "كارت الطالب و QR Code:", card_link]
     lines += ["",
@@ -2370,11 +2383,12 @@ def send_parent_login(pid):
     # في سطر مستقل وبدون رموز ملتصقة بالقيمة نفسها). القالب parent_login إن وُجد.
     msg = wa.render_template(
         "parent_login", student=(children[0]["name"] if children else ""),
-        username=p["username"], password=newp, portal_url=portal, teacher=tname)
+        username=_wa_code(p["username"]), password=_wa_code(newp),
+        portal_url=portal, teacher=tname)
     if not (msg or "").strip():
         msg = (f"بيانات الدخول إلى بوابة ولي الأمر:\n\n"
-               f"اسم المستخدم:\n{p['username']}\n\n"
-               f"كلمة المرور:\n{newp}\n\n"
+               f"اسم المستخدم:\n{_wa_code(p['username'])}\n\n"
+               f"كلمة المرور:\n{_wa_code(newp)}\n\n"
                f"رابط الدخول:\n{portal}\n\n"
                f"مع تحيات {tname}")
     # ألحق قائمة الأبناء المرتبطين بالحساب
@@ -2638,9 +2652,16 @@ def save_attendance(sid):
     syid = se["year_id"] or active_year_id()
     data = request.get_json()
     reminders_created = 0
+    skipped = 0
     for item in data["records"]:
         st_id = item["student_id"]
         status = item["status"]
+        # طالب لم تُحدَّد حالته (لا حاضر ولا متأخر ولا غائب): لا يُسجَّل إطلاقًا،
+        # فلا يُحتسب عليه حضور ولا دَين. هذا يمنع احتساب طالب لم يأتِ أصلًا كمتأخر
+        # في السداد لمجرّد أن الافتراضي كان «حاضر». (لا نلمس أي سجل قائم له.)
+        if status not in ("present", "late", "absent"):
+            skipped += 1
+            continue
         homework = item.get("homework", "none")
         if homework not in HW_STATUSES:
             homework = "none"
@@ -2709,11 +2730,13 @@ def save_attendance(sid):
                     (st_id, sid, remaining, due, "09:00", "whatsapp", "pending", db.now()))
                 reminders_created += 1
     conn.commit()
-    # فحص تنبيه تكرار الغياب لكل طالب سُجّل (بعد حفظ الحضور) — بلا تكرار للتنبيه نفسه
-    absence_alerts = _check_absence_alerts(conn, [it["student_id"] for it in data["records"]], syid)
+    # فحص تنبيه تكرار الغياب فقط للطلاب المسجَّلين فعليًا (بحالة محدّدة)
+    checked_ids = [it["student_id"] for it in data["records"]
+                   if it.get("status") in ("present", "late", "absent")]
+    absence_alerts = _check_absence_alerts(conn, checked_ids, syid)
     conn.close()
     return jsonify({"ok": True, "reminders": reminders_created,
-                    "absence_alerts": absence_alerts})
+                    "absence_alerts": absence_alerts, "skipped": skipped})
 
 
 # ---- تسجيل الحضور بالـ QR ----
@@ -2919,14 +2942,19 @@ def _is_due(r):
     return due_dt <= _now_stamp()
 
 
-def _fetch_reminders(conn, status="pending", active_only=False):
+def _fetch_reminders(conn, status="pending", active_only=False, year_id=None):
     # للتذكيرات المعلّقة (التي ستُرسل) نستبعد الطلاب غير الفعّالين
     extra = " AND (s.status IS NULL OR s.status<>'inactive')" if active_only else ""
+    # نقصر التذكيرات على العام النشط (عبر عام الحصة) حتى لا تظهر متأخرات عام سابق.
+    if year_id is None:
+        year_id = active_year_id()
     return conn.execute(
         "SELECT r.*, s.name, s.parent_phone, g.name group_name "
         "FROM reminders r JOIN students s ON r.student_id=s.id "
+        "JOIN sessions se ON r.session_id=se.id "
         "LEFT JOIN groups g ON s.group_id=g.id "
-        f"WHERE r.status=?{extra} ORDER BY r.due_date, r.due_time", (status,)).fetchall()
+        f"WHERE r.status=? AND se.year_id=?{extra} "
+        "ORDER BY r.due_date, r.due_time", (status, year_id)).fetchall()
 
 
 def _send_reminder_email(subject_line, body):
@@ -4458,8 +4486,8 @@ def exam_creds(eid):
         msg = (f"السلام عليكم، ولي أمر الطالب/ة *{s['name']}*\n"
                f"بيانات دخول الامتحان الإلكتروني *{ex['title']}* في مادة {subj}:\n\n"
                f"🔗 رابط الامتحان: {link}\n"
-               f"🔢 كود الطالب: {s['code']}\n"
-               f"🔑 كلمة المرور: {s['exam_password']}\n\n"
+               f"🔢 كود الطالب: {_wa_code(s['code'])}\n"
+               f"🔑 كلمة المرور: {_wa_code(s['exam_password'])}\n\n"
                f"مع تحيات {tname}")
         messages.append({"name": s["name"], "phone": s["parent_phone"],
                          "status": f"كود: {s['code']}",
