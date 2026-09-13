@@ -2475,6 +2475,7 @@ def sessions():
     rows = conn.execute(
         "SELECT se.*, g.name group_name, "
         "(SELECT COUNT(*) FROM attendance a WHERE a.session_id=se.id) marked, "
+        "(SELECT COUNT(*) FROM attendance a WHERE a.session_id=se.id AND a.status IN ('present','late')) attended, "
         "(SELECT COALESCE(SUM(amount),0) FROM attendance a WHERE a.session_id=se.id AND a.paid=1) income "
         "FROM sessions se LEFT JOIN groups g ON se.group_id=g.id "
         "WHERE se.year_id=? ORDER BY se.date DESC, se.id DESC", (yid,)).fetchall()

@@ -96,10 +96,16 @@ class Conn:
                 client_encoding="utf8",  # ضمان دعم العربية بغضّ النظر عن locale الخادم
             )
         else:
-            self._conn = sqlite3.connect(SQLITE_PATH, timeout=15)
+            # ملاحظة PythonAnywhere: نظام ملفاته (NFS) لا يتوافق مع WAL، فتقنية WAL
+            # تسبب أخطاء "database is locked". لذا نستخدم journal_mode=DELETE (الأكثر
+            # توافقًا مع NFS)، ونرفع مهلة الانتظار لتفادي القفل عند تزامن الطلبات.
+            self._conn = sqlite3.connect(SQLITE_PATH, timeout=30.0)
             self._conn.row_factory = sqlite3.Row
+            # busy_timeout: انتظر حتى 30 ثانية إذا كانت القاعدة مقفولة بدل رفع خطأ فورًا
+            self._conn.execute("PRAGMA busy_timeout = 30000")
             self._conn.execute("PRAGMA foreign_keys = ON")
-            self._conn.execute("PRAGMA journal_mode = WAL")
+            # DELETE (بدل WAL): متوافق مع NFS على PythonAnywhere ولا يسبب قفل القاعدة
+            self._conn.execute("PRAGMA journal_mode = DELETE")
 
     def execute(self, sql, params=()):
         cur = Cursor(self, self._conn.cursor(), self._pg)
@@ -118,6 +124,24 @@ class Conn:
             pass
 
     def close(self):
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    # دعم مدير السياق: with get_db() as conn: ... يغلق الاتصال تلقائيًا حتى عند
+    # حدوث استثناء، فلا يبقى اتصال SQLite معلّقًا يقفل الملف (سبب database is locked).
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.rollback()
+        self.close()
+        return False
+
+    # شبكة أمان: إذا نُسي إغلاق الاتصال، يُغلق عند جمع القمامة بدل بقائه يقفل الملف.
+    def __del__(self):
         try:
             self._conn.close()
         except Exception:
