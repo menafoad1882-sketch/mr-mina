@@ -10,7 +10,7 @@
   {% if sessions %}
   <div class="table-wrap">
   <table>
-    <tr><th>التاريخ</th><th>المجموعة</th><th>العنوان</th><th>سعر الحصة</th><th>مسجّل حضورهم</th><th>دخل الحصة</th><th>إجراءات</th></tr>
+    <tr><th>التاريخ</th><th>المجموعة</th><th>العنوان</th><th>سعر الحصة</th><th>مسجّل حضورهم</th><th>حضر فعليًا</th><th>دخل الحصة</th><th>إجراءات</th></tr>
     {% for s in sessions %}
     <tr>
       <td>{{ s.date }}</td>
@@ -20,6 +20,7 @@
       </td>
       <td>{{ '%g'|format(s.fee) }} ج</td>
       <td><span class="pill">{{ s.marked }}</span></td>
+      <td><span class="pill" style="background:#dcfce7;color:#15803d">✅ {{ s.attended }}</span></td>
       <td><b style="color:var(--green)">{{ '%g'|format(s.income) }} ج</b></td>
       <td class="actions">
         <a href="{{ url_for('session_detail', sid=s.id) }}" class="btn sm">تسجيل الحضور</a>
