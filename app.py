@@ -719,6 +719,7 @@ def compute_notifications(yid=None):
     if yid is None:
         yid = active_year_id()
     conn = db.get_db()
+    _sync_reminders(conn, yid)  # صحّح المتأخرات القديمة الخاطئة قبل حساب التنبيهات
     grading, unpaid, failed, absences = [], [], [], []
     try:
         grading = conn.execute(
@@ -1964,6 +1965,7 @@ def _student_login_message(st):
     tname = teacher_name()
     subj = db.get_setting("subject", "المادة")
     base = site_url()
+    login_link = f"{base}/student/{st['code']}/login" if base else ""
     card_link = f"{base}/student/{st['code']}/qr" if base else ""
     lines = [f"السلام عليكم، ولي أمر الطالب/ة {st['name']}",
              f"بيانات دخول الطالب لمنصة مادة {subj}:",
@@ -1973,6 +1975,8 @@ def _student_login_message(st):
              "",
              "كلمة المرور:",
              _wa_code(st['exam_password'])]
+    if login_link:
+        lines += ["", "لنسخ كلمة المرور بسهولة اضغط الرابط التالي:", login_link]
     if card_link:
         lines += ["", "كارت الطالب و QR Code:", card_link]
     lines += ["",
@@ -2055,6 +2059,28 @@ def send_logins_do():
     return render_template("whatsapp.html", messages=messages,
                            title="إرسال بيانات دخول الطلاب المحدّدين",
                            back=back)
+
+
+@app.route("/student/<code>/login")
+def student_creds_public(code):
+    """صفحة عامة لبيانات دخول الطالب مع أزرار «نسخ» لكل قيمة (كود + كلمة المرور).
+    يفتحها ولي الأمر من رابط الواتساب فينسخ كلمة المرور بضغطة واحدة."""
+    conn = db.get_db()
+    st = conn.execute("SELECT * FROM students WHERE code=?", (code,)).fetchone()
+    conn.close()
+    if not st:
+        return "غير موجود", 404
+    base = site_url()
+    rows = [
+        {"label": "اسم المستخدم / كود الدخول", "value": st["code"], "copy": True},
+        {"label": "كلمة المرور", "value": st["exam_password"], "copy": True},
+    ]
+    return render_template(
+        "creds_public.html",
+        title=f"بيانات دخول: {st['name']}",
+        subtitle=f"منصة مادة {db.get_setting('subject', 'المادة')} — {teacher_name()}",
+        rows=rows,
+        portal_url=f"{base}/student/{st['code']}/qr" if base else "")
 
 
 @app.route("/student/<code>/qr")
@@ -2370,6 +2396,12 @@ def send_parent_login(pid):
                  (generate_password_hash(newp), pid))
     conn.commit()
     conn.close()
+    # نخزّن كلمة المرور الجديدة (نصًّا) لعرضها في صفحة النسخ العامة برمز عشوائي،
+    # حتى يفتحها ولي الأمر من رابط الواتساب وينسخ كلمة المرور بضغطة واحدة.
+    tok = db.gen_pass(10)
+    db.set_state("parent_creds", tok, json.dumps({"pid": pid, "password": newp},
+                                                 ensure_ascii=False))
+    creds_link = f"{site_url()}/parent-login/{tok}"
     portal = f"{site_url()}/parent/login"
     tname = teacher_name()
     # قائمة الأبناء المرتبطين بهذا الحساب (تُعرض في الرسالة)
@@ -2393,6 +2425,8 @@ def send_parent_login(pid):
                f"مع تحيات {tname}")
     # ألحق قائمة الأبناء المرتبطين بالحساب
     msg += f"\n\nالأبناء المرتبطون بهذا الحساب:\n{kids_lines}"
+    # ألحق رابط صفحة النسخ (زر «نسخ» لكلمة المرور بضغطة واحدة على الموبايل)
+    msg += (f"\n\nلنسخ كلمة المرور بسهولة اضغط الرابط التالي:\n{creds_link}")
     messages = [{"name": p["name"] or p["username"], "phone": phone,
                  "status": "بيانات الدخول",
                  "link": wa.wa_link(phone, msg), "msg": msg,
@@ -2400,6 +2434,34 @@ def send_parent_login(pid):
     return render_template("whatsapp.html", messages=messages,
                            title=f"إرسال بيانات دخول: {p['name'] or p['username']}",
                            back=url_for("parents"))
+
+
+@app.route("/parent-login/<token>")
+def parent_creds_public(token):
+    """صفحة عامة (برمز عشوائي) لبيانات دخول بوابة ولي الأمر مع زر «نسخ» لكلمة
+    المرور. يفتحها ولي الأمر من رابط الواتساب فينسخ كلمة المرور بضغطة واحدة."""
+    raw = db.get_state("parent_creds", token)
+    if not raw:
+        return "انتهت صلاحية الرابط أو غير صحيح", 404
+    try:
+        info = json.loads(raw)
+    except (ValueError, TypeError):
+        return "رابط غير صالح", 404
+    conn = db.get_db()
+    p = conn.execute("SELECT * FROM parents WHERE id=?", (info.get("pid"),)).fetchone()
+    conn.close()
+    if not p:
+        return "الحساب غير موجود", 404
+    portal = f"{site_url()}/parent/login"
+    rows = [
+        {"label": "اسم المستخدم", "value": p["username"], "copy": True},
+        {"label": "كلمة المرور", "value": info.get("password", ""), "copy": True},
+    ]
+    return render_template(
+        "creds_public.html",
+        title=f"بوابة أولياء الأمور — {p['name'] or p['username']}",
+        subtitle=f"مع تحيات {teacher_name()}",
+        rows=rows, portal_url=portal)
 
 
 # ---------------------------------------------------------------------------
@@ -2942,6 +3004,70 @@ def _is_due(r):
     return due_dt <= _now_stamp()
 
 
+def _sync_reminders(conn, year_id=None):
+    """يعيد مزامنة تذكيرات الدفع (reminders) مع الواقع المالي الفعلي في جدول
+    attendance، ويصحّح البيانات القديمة الخاطئة تلقائيًا دون فقد أي مدفوعات:
+
+    السبب الجذري للمديونية الخاطئة: التذكير كان يُخزَّن كـ«لقطة» ثابتة للمتبقّي
+    وقت الحفظ (remaining ثابت). فإذا:
+      - سُجِّل طالب حاضرًا افتراضيًا ثم صُحِّح إلى غائب،
+      - أو عُدِّل سعر المجموعة/التخفيض لاحقًا (50 ← 37.5)،
+    يظل التذكير القديم بقيمته الخاطئة (دَين وهمي).
+
+    الحل: نحسب المتبقّي ديناميكيًا من الحضور:
+        المتبقّي = السعر الفعلي المستحق (fee_charged، وإلا سعر الحصة) − المدفوع
+    ونطبّق التصحيحات التالية (كلها آمنة ولا تمسّ amount المدفوع فعليًا):
+      1) تذكير لطالب حالته ليست present/late (غائب/غير مسجَّل) أو معفى → يُحذف.
+      2) تذكير بلا سجل حضور مطابق → يُحذف.
+      3) المدفوع ≥ السعر الفعلي (لا متبقّي) → يُحذف التذكير المعلّق.
+      4) خلاف ذلك: يُحدَّث remaining إلى القيمة الصحيحة الحالية.
+    نقتصر على التذكيرات المعلّقة (pending) لعام الحصة المطلوب (أو كل الأعوام لو None).
+    """
+    if year_id is None:
+        year_id = active_year_id()
+    try:
+        rows = conn.execute(
+            "SELECT r.id, r.student_id, r.session_id, r.remaining, "
+            "se.year_id AS syear, COALESCE(se.fee,0) AS group_fee, "
+            "a.status AS att_status, a.fee_exempt, "
+            "COALESCE(a.fee_charged, se.fee, 0) AS fee_snapshot, "
+            "COALESCE(a.amount,0) AS amount "
+            "FROM reminders r "
+            "JOIN sessions se ON r.session_id=se.id "
+            "LEFT JOIN attendance a ON a.session_id=r.session_id "
+            "AND a.student_id=r.student_id "
+            "WHERE r.status='pending' AND se.year_id=?", (year_id,)).fetchall()
+    except Exception:
+        conn.rollback()
+        return 0
+    changed = 0
+    for r in rows:
+        att_status = r["att_status"]
+        exempt = r["fee_exempt"] if ("fee_exempt" in r.keys()) else 0
+        # (1)+(2): لا سجل حضور، أو ليس حاضرًا/متأخرًا، أو معفى → لا دَين حقيقي
+        if att_status is None or att_status not in ("present", "late") or exempt:
+            conn.execute("DELETE FROM reminders WHERE id=?", (r["id"],))
+            changed += 1
+            continue
+        # السعر الفعلي المستحق حاليًا = تخفيض الطالب لهذا العام إن وُجد، وإلا سعر
+        # المجموعة الحالي. نستخدمه (لا اللقطة القديمة fee_snapshot) حتى ينعكس تصحيح
+        # سعر المجموعة (مثلًا 50 ← 37.5) على المتأخرات القديمة تلقائيًا.
+        eff = _effective_fee(conn, r["student_id"], r["syear"], r["group_fee"])
+        real_remaining = round((eff or 0) - (r["amount"] or 0), 2)
+        if real_remaining <= 0:
+            # (3): سُدِّد بالكامل حسب السعر الحالي → أزل التذكير
+            conn.execute("DELETE FROM reminders WHERE id=?", (r["id"],))
+            changed += 1
+        elif abs(real_remaining - (r["remaining"] or 0)) > 0.001:
+            # (4): صحّح قيمة المتبقّي لتطابق السعر الفعلي الحالي
+            conn.execute("UPDATE reminders SET remaining=? WHERE id=?",
+                         (real_remaining, r["id"]))
+            changed += 1
+    if changed:
+        conn.commit()
+    return changed
+
+
 def _fetch_reminders(conn, status="pending", active_only=False, year_id=None):
     # للتذكيرات المعلّقة (التي ستُرسل) نستبعد الطلاب غير الفعّالين
     extra = " AND (s.status IS NULL OR s.status<>'inactive')" if active_only else ""
@@ -2984,6 +3110,7 @@ def _send_reminder_email(subject_line, body):
 @login_required
 def reminders():
     conn = db.get_db()
+    _sync_reminders(conn)  # صحّح أي متأخرات قديمة خاطئة قبل العرض
     pending = _fetch_reminders(conn, "pending", active_only=True)
     done = _fetch_reminders(conn, "done")[:20]
     conn.close()
@@ -4863,16 +4990,20 @@ def build_report(start_date, end_date, label=None, year_id=None):
     # (fee_charged: سعر التخفيض إن وُجد وقت الحفظ وإلا سعر المجموعة) بدل سعر المجموعة
     # الخام. المتبقّي = السعر الفعلي − المدفوع، ويُدرَج فقط لو أكبر من صفر (فالتخفيض
     # ليس دَينًا: من يدفع سعره المخفّض كاملًا ليس متأخرًا).
+    # السعر الفعلي المستحق = سعر التخفيض الحالي للطالب لهذا العام (enr.discount_fee)
+    # إن وُجد، وإلا سعر الحصة (se.fee). نستخدم السعر الحالي (لا لقطة fee_charged القديمة)
+    # ليتطابق التقرير مع صفحة التذكيرات ولينعكس تصحيح سعر المجموعة (50 ← 37.5) تلقائيًا.
     unpaid = conn.execute(
         "SELECT COALESCE(s.name, a.student_name_snapshot, 'طالب محذوف') AS name, "
         "CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS is_deleted, se.date, "
-        "COALESCE(a.fee_charged, se.fee) AS fee, "
-        "(COALESCE(a.fee_charged, se.fee) - COALESCE(a.amount,0)) AS remaining "
+        "COALESCE(enr.discount_fee, a.fee_charged, se.fee) AS fee, "
+        "(COALESCE(enr.discount_fee, a.fee_charged, se.fee) - COALESCE(a.amount,0)) AS remaining "
         "FROM attendance a "
         "LEFT JOIN students s ON a.student_id=s.id JOIN sessions se ON a.session_id=se.id "
+        "LEFT JOIN enrollments enr ON enr.student_id=a.student_id AND enr.year_id=se.year_id "
         "WHERE (a.fee_exempt IS NULL OR a.fee_exempt=0) "
         "AND a.status IN ('present','late') "
-        "AND (COALESCE(a.fee_charged, se.fee) - COALESCE(a.amount,0)) > 0 "
+        "AND (COALESCE(enr.discount_fee, a.fee_charged, se.fee) - COALESCE(a.amount,0)) > 0 "
         "AND se.year_id=? AND se.date>=? AND se.date<=? "
         "ORDER BY se.date", (year_id, start_date, end_date)).fetchall()
     # المعفَون من الرسوم (للعرض المنفصل في التقرير المالي — لا يُحسبون غير مدفوع)

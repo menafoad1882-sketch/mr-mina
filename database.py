@@ -491,6 +491,8 @@ def init_db():
     backfill_exam_status()
     # ترحيل: دمج حسابات أولياء الأمور المكرّرة بنفس رقم الواتساب (حساب واحد لكل ولي أمر)
     merge_duplicate_parents()
+    # ترحيل: تنظيف تذكيرات الدفع الخاطئة القديمة (دَين وهمي لطلاب لم يحضروا فعلًا)
+    cleanup_invalid_reminders()
 
 
 # جدول الأعمدة المتوقعة لكل جدول (للترحيل التلقائي / migration)
@@ -760,6 +762,45 @@ def backfill_exam_status():
             "ON CONFLICT(key) DO UPDATE SET value='1'")
         conn.commit()
         print("[migration] ضُبطت حالة الامتحانات القديمة على «منشورة»")
+    except DBError:
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def cleanup_invalid_reminders():
+    """يحذف تذكيرات الدفع (reminders) الخاطئة القديمة: التي أُنشئت لطلاب لم يحضروا
+    فعلًا (بسبب خطأ قديم كان يعتبر الطالب «حاضرًا» افتراضيًا)، فتظهر كمديونية وهمية.
+
+    آمن تمامًا: لا يمسّ جدول attendance ولا أي مبالغ مدفوعة، ولا يحذف إلا التذكيرات
+    المعلّقة (pending) التي لا يقابلها حضور صحيح:
+      - لا يوجد سجل حضور مطابق (session_id + student_id)، أو
+      - حالة الحضور ليست حاضر/متأخر (غائب)، أو
+      - الطالب معفى من الرسوم لتلك الحصة.
+    يُنفَّذ مرة واحدة فقط (يُعلَّم في settings). لا يلمس التذكيرات المنتهية (done).
+    """
+    conn = get_db()
+    try:
+        done = conn.execute(
+            "SELECT value FROM settings WHERE key='reminders_cleaned'").fetchone()
+        if done and (done["value"] == "1"):
+            conn.close()
+            return
+        # احذف التذكيرات المعلّقة التي لا يقابلها حضور «حاضر/متأخر» غير معفى
+        conn.execute(
+            "DELETE FROM reminders WHERE status='pending' AND id IN ("
+            "  SELECT r.id FROM reminders r "
+            "  LEFT JOIN attendance a ON a.session_id=r.session_id "
+            "    AND a.student_id=r.student_id "
+            "  WHERE r.status='pending' AND ("
+            "    a.id IS NULL "
+            "    OR a.status NOT IN ('present','late') "
+            "    OR a.fee_exempt=1))")
+        conn.execute(
+            "INSERT INTO settings(key,value) VALUES('reminders_cleaned','1') "
+            "ON CONFLICT(key) DO UPDATE SET value='1'")
+        conn.commit()
+        print("[migration] نُظّفت تذكيرات الدفع الخاطئة القديمة (دَين وهمي)")
     except DBError:
         conn.rollback()
     finally:
