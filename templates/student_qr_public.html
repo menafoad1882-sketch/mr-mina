@@ -16,9 +16,12 @@ img{width:200px;height:200px;border:1px solid #e2e8f0;border-radius:12px}
 .name{font-size:1.3rem;font-weight:800;margin:14px 0 4px;color:#0f172a}
 .grp{color:#64748b;margin-bottom:16px}
 .creds{background:#f8fafc;border-radius:12px;padding:16px;margin-top:10px}
-.row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #e2e8f0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px dashed #e2e8f0}
 .row:last-child{border:0}
-.row b{color:#2563eb;font-family:monospace;font-size:1.1rem;letter-spacing:1px}
+.row b{color:#2563eb;font-family:monospace;font-size:1.1rem;letter-spacing:1px;user-select:all;-webkit-user-select:all}
+.cbtn{background:#2563eb;color:#fff;border:none;padding:6px 11px;border-radius:8px;font-weight:700;font-family:inherit;cursor:pointer;font-size:.8rem;white-space:nowrap}
+.cbtn.ok{background:#16a34a}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#16a34a;color:#fff;padding:10px 18px;border-radius:10px;font-weight:700;font-size:.9rem;z-index:99;opacity:0;transition:opacity .2s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .hint{color:#64748b;font-size:.85rem;margin-top:16px;line-height:1.7}
 .save{background:#25d366;color:#fff;border:none;padding:12px;border-radius:10px;
   font-weight:700;font-family:inherit;margin-top:16px;width:100%;cursor:pointer;font-size:1rem}
@@ -31,18 +34,47 @@ img{width:200px;height:200px;border:1px solid #e2e8f0;border-radius:12px}
   <div class="name">{{ st.name }}</div>
   <div class="grp">{{ st.grade or '' }}</div>
   <div class="creds">
-    <div class="row"><span>كود الدخول:</span> <b>{{ st.code }}</b></div>
-    <div class="row"><span>كلمة المرور:</span> <b>{{ st.exam_password }}</b></div>
+    <div class="row"><span>كود الدخول:</span>
+      <span style="display:flex;align-items:center;gap:6px"><b>{{ st.code }}</b>
+      <button type="button" class="cbtn" data-copy="{{ st.code }}" onclick="copyVal(this)">📋</button></span></div>
+    <div class="row"><span>كلمة المرور:</span>
+      <span style="display:flex;align-items:center;gap:6px"><b>{{ st.exam_password }}</b>
+      <button type="button" class="cbtn" data-copy="{{ st.exam_password }}" onclick="copyVal(this)">📋</button></span></div>
   </div>
   <button class="save" onclick="saveQR()">⬇️ حفظ صورة الـ QR</button>
   <p class="hint">استخدم كود الدخول لتسجيل الحضور بمسح الـ QR، ولدخول الامتحانات الإلكترونية بالكود وكلمة المرور.</p>
 </div>
+<div id="toast"></div>
 <script>
 function saveQR(){
   const a=document.createElement('a');
   a.href=document.getElementById('qrimg').src;
   a.download='qr_{{ st.code }}.png';
   a.click();
+}
+function _toast(msg, ok){
+  var t=document.getElementById('toast');
+  t.textContent=msg; t.style.background=ok?'#16a34a':'#dc2626'; t.style.opacity='1';
+  clearTimeout(t._h); t._h=setTimeout(function(){t.style.opacity='0';},1800);
+}
+function _fallbackCopy(val){
+  try{
+    var ta=document.createElement('textarea'); ta.value=val; ta.setAttribute('readonly','');
+    ta.style.cssText='position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0,val.length);
+    var ok=document.execCommand('copy'); document.body.removeChild(ta); return ok;
+  }catch(e){ return false; }
+}
+function copyVal(btn){
+  var val=btn.getAttribute('data-copy')||'';
+  function done(ok){
+    btn.textContent = ok ? '✓' : '!'; btn.classList.toggle('ok', ok);
+    _toast(ok?'تم النسخ ✓':'انسخ يدويًا', ok);
+    setTimeout(function(){ btn.textContent='📋'; btn.classList.remove('ok'); },1800);
+  }
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(val).then(function(){done(true);}).catch(function(){done(_fallbackCopy(val));});
+  }else{ done(_fallbackCopy(val)); }
 }
 </script>
 </body>
