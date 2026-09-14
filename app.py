@@ -562,29 +562,97 @@ def parent_dashboard():
                            parent_name=session.get("parent_name"))
 
 
+def _mask_email(email):
+    """يُخفي جزءًا من الإيميل عند عرضه (mina@gmail.com → mi***@gmail.com)."""
+    email = (email or "").strip()
+    if "@" not in email:
+        return email
+    local, _, domain = email.partition("@")
+    if len(local) <= 2:
+        shown = local[:1]
+    else:
+        shown = local[:2]
+    return f"{shown}***@{domain}"
+
+
 @app.route("/forgot", methods=["GET", "POST"])
 def forgot():
-    """استرجاع كلمة المرور عبر كود الاسترجاع"""
+    """استرجاع كلمة المرور: عبر إرسال كود تحقّق إلى إيميل المعلم المسجّل (نفس إيميل
+    التقارير المالية)، مع الإبقاء على كود الاسترجاع اليدوي كوسيلة احتياطية."""
     step = "verify"
+    report_email = (db.get_setting("report_email") or "").strip()
     if request.method == "POST":
         conn = db.get_db()
         row = conn.execute("SELECT * FROM admin LIMIT 1").fetchone()
         action = request.form.get("action")
+
+        # (1) طلب إرسال كود التحقّق على الإيميل المسجّل
+        if action == "send_email":
+            conn.close()
+            if not report_email:
+                flash("لا يوجد إيميل مسجّل. اضبط «إيميل استقبال التقارير» من الإعدادات أولًا، "
+                      "أو استخدم كود الاسترجاع.", "error")
+                return render_template("forgot.html", step="verify",
+                                       report_email=report_email, report_email_masked=_mask_email(report_email))
+            code = "%06d" % random.randint(0, 999999)  # كود من 6 أرقام
+            session["reset_email_code"] = code
+            session["reset_email_expires"] = int(time.time()) + 600  # صالح 10 دقائق
+            session.pop("reset_ok", None)
+            body = (f"مرحبًا،\n\n"
+                    f"طلبت إعادة تعيين كلمة مرور نظام إدارة المدرس.\n"
+                    f"كود التحقّق الخاص بك هو:\n\n{code}\n\n"
+                    f"هذا الكود صالح لمدة 10 دقائق. إذا لم تطلب ذلك فتجاهل هذه الرسالة.")
+            ok, resp = _send_email("كود إعادة تعيين كلمة المرور — نظام إدارة المدرس", body)
+            if ok:
+                flash(f"تم إرسال كود التحقّق إلى إيميلك ({_mask_email(report_email)}). "
+                      "تحقّق من بريدك (وصندوق الوارد غير المرغوب).", "success")
+                return render_template("forgot.html", step="email_code",
+                                       report_email=report_email, report_email_masked=_mask_email(report_email))
+            flash(f"تعذّر إرسال الإيميل: {resp}", "error")
+            return render_template("forgot.html", step="verify",
+                                   report_email=report_email, report_email_masked=_mask_email(report_email))
+
+        # (2) التحقّق من كود الإيميل
+        if action == "verify_email":
+            conn.close()
+            entered = re.sub(r"\D", "", request.form.get("email_code", ""))
+            real = session.get("reset_email_code")
+            exp = session.get("reset_email_expires", 0)
+            if not real or int(time.time()) > int(exp):
+                flash("انتهت صلاحية الكود. اطلب كودًا جديدًا.", "error")
+                return render_template("forgot.html", step="verify",
+                                       report_email=report_email, report_email_masked=_mask_email(report_email))
+            if entered and entered == real:
+                session["reset_ok"] = True
+                session.pop("reset_email_code", None)
+                session.pop("reset_email_expires", None)
+                return render_template("forgot.html", step="reset",
+                                       report_email=report_email, report_email_masked=_mask_email(report_email))
+            flash("كود التحقّق غير صحيح", "error")
+            return render_template("forgot.html", step="email_code",
+                                   report_email=report_email, report_email_masked=_mask_email(report_email))
+
+        # (3) كود الاسترجاع اليدوي (احتياطي)
         if action == "verify":
             code = request.form.get("recovery_code", "").strip()
             if row and code and code == row["recovery_code"]:
                 session["reset_ok"] = True
                 conn.close()
-                return render_template("forgot.html", step="reset")
+                return render_template("forgot.html", step="reset",
+                                       report_email=report_email, report_email_masked=_mask_email(report_email))
             conn.close()
             flash("كود الاسترجاع غير صحيح", "error")
-            return render_template("forgot.html", step="verify")
-        elif action == "reset" and session.get("reset_ok"):
+            return render_template("forgot.html", step="verify",
+                                   report_email=report_email, report_email_masked=_mask_email(report_email))
+
+        # (4) حفظ كلمة المرور الجديدة (بعد التحقّق بأي وسيلة)
+        if action == "reset" and session.get("reset_ok"):
             newp = request.form.get("new_password", "")
             if len(newp) < 4:
                 conn.close()
                 flash("كلمة المرور قصيرة جدًا (4 أحرف على الأقل)", "error")
-                return render_template("forgot.html", step="reset")
+                return render_template("forgot.html", step="reset",
+                                       report_email=report_email, report_email_masked=_mask_email(report_email))
             new_recovery = db.gen_pass(8)
             conn.execute("UPDATE admin SET password_hash=?, recovery_code=? WHERE id=?",
                          (generate_password_hash(newp), new_recovery, row["id"]))
@@ -593,7 +661,8 @@ def forgot():
             session.pop("reset_ok", None)
             flash(f"تم تغيير كلمة المرور بنجاح. كود الاسترجاع الجديد: {new_recovery} (احفظه!)", "success")
             return redirect(url_for("login"))
-    return render_template("forgot.html", step=step)
+        conn.close()
+    return render_template("forgot.html", step=step, report_email=report_email, report_email_masked=_mask_email(report_email))
 
 
 # ---------------------------------------------------------------------------
@@ -3084,13 +3153,14 @@ def _fetch_reminders(conn, status="pending", active_only=False, year_id=None):
         "ORDER BY r.due_date, r.due_time", (status, year_id)).fetchall()
 
 
-def _send_reminder_email(subject_line, body):
-    """يرسل تذكير بالإيميل. يرجّع (نجاح, رسالة)"""
+def _send_email(subject_line, body, to_email=None):
+    """يرسل رسالة بريد عامة إلى عنوان محدّد (أو إيميل التقارير المسجّل افتراضيًا).
+    يرجّع (نجاح, رسالة)."""
     host = db.get_setting("smtp_host")
     port = int(db.get_setting("smtp_port") or 587)
     user = db.get_setting("smtp_user")
     pw = db.get_setting("smtp_pass")
-    to_email = db.get_setting("report_email")
+    to_email = (to_email or db.get_setting("report_email") or "").strip()
     if not (user and pw and to_email):
         return False, "إعدادات الإيميل (SMTP) أو الإيميل المستلم غير مضبوطة"
     try:
@@ -3105,6 +3175,11 @@ def _send_reminder_email(subject_line, body):
         return True, "تم الإرسال بالإيميل"
     except Exception as e:
         return False, f"فشل الإيميل: {e}"
+
+
+def _send_reminder_email(subject_line, body):
+    """يرسل تذكير بالإيميل إلى إيميل التقارير المسجّل. يرجّع (نجاح, رسالة)"""
+    return _send_email(subject_line, body)
 
 
 @app.route("/reminders")
