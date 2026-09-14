@@ -45,14 +45,40 @@ html[data-theme="dark"] .tt{background:rgba(30,41,59,.9)}
     {% for cat, msg in messages %}<div class="flash">{{ msg }}</div>{% endfor %}
   {% endwith %}
   {% if step == 'verify' %}
-  <p class="sub">أدخل كود الاسترجاع الذي حصلت عليه عند إنشاء الحساب</p>
-  <div class="hint">💡 كود الاسترجاع ظهر لك في الطرفية (Terminal) عند أول تشغيل، وتقدر تشوفه/تغيّره من صفحة الإعدادات.</div>
+  <p class="sub">اختر طريقة استرجاع كلمة المرور</p>
+
+  {% if report_email %}
+  <div class="hint">📧 سيُرسَل كود تحقّق إلى إيميلك المسجّل ({{ report_email_masked }}) — نفس إيميل استقبال التقارير المالية.</div>
+  <form method="post" style="margin-bottom:8px">
+    <input type="hidden" name="action" value="send_email">
+    <button class="btn" type="submit">✉️ إرسال كود على الإيميل</button>
+  </form>
+  <div style="text-align:center;color:#94a3b8;font-size:.85rem;margin:14px 0 10px">— أو —</div>
+  {% else %}
+  <div class="hint">⚠️ لا يوجد إيميل مسجّل لإرسال الكود. اضبط «إيميل استقبال التقارير» من الإعدادات بعد الدخول، أو استخدم كود الاسترجاع أدناه.</div>
+  {% endif %}
+
   <form method="post">
     <input type="hidden" name="action" value="verify">
-    <div class="field"><label>كود الاسترجاع</label>
-      <input name="recovery_code" required autofocus placeholder="مثال: A7K9M2P4"></div>
-    <button class="btn" type="submit">تحقق</button>
+    <div class="field"><label>كود الاسترجاع اليدوي</label>
+      <input name="recovery_code" placeholder="مثال: A7K9M2P4"></div>
+    <button class="btn" type="submit" style="background:#475569">تحقق بكود الاسترجاع</button>
   </form>
+  <p class="hint" style="margin-top:14px">💡 كود الاسترجاع ظهر لك في الطرفية عند أول تشغيل، وتقدر تشوفه/تغيّره من صفحة الإعدادات.</p>
+
+  {% elif step == 'email_code' %}
+  <p class="sub">أدخل كود التحقّق المُرسَل إلى إيميلك ({{ report_email_masked }})</p>
+  <form method="post">
+    <input type="hidden" name="action" value="verify_email">
+    <div class="field"><label>كود التحقّق (6 أرقام)</label>
+      <input name="email_code" required autofocus inputmode="numeric" placeholder="مثال: 123456" style="letter-spacing:4px;text-align:center;font-size:1.3rem"></div>
+    <button class="btn" type="submit">تحقّق</button>
+  </form>
+  <form method="post" style="margin-top:10px">
+    <input type="hidden" name="action" value="send_email">
+    <button class="btn" type="submit" style="background:#475569;font-size:.9rem;padding:10px">🔁 إعادة إرسال الكود</button>
+  </form>
+
   {% else %}
   <p class="sub">أدخل كلمة المرور الجديدة</p>
   <form method="post">
