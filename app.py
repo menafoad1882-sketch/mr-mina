@@ -378,6 +378,12 @@ def _session_timeout_minutes():
 
 
 @app.before_request
+def _reset_settings_cache():
+    # صفّر ذاكرة الإعدادات المؤقتة ببداية كل طلب (تُحمَّل مرة واحدة عند أول قراءة)
+    db.clear_settings_cache()
+
+
+@app.before_request
 def _enforce_session_timeout():
     ep = request.endpoint or ""
     if ep in _TIMEOUT_EXEMPT:
@@ -778,17 +784,21 @@ def notifications():
     return render_template("notifications.html", n=n, grading_detail=grading_detail)
 
 
-def compute_notifications(yid=None):
+def compute_notifications(yid=None, sync=True):
     """يحسب تنبيهات المعلم للعام النشط:
     - امتحانات إلكترونية بها محاولات تنتظر تصحيح المدرس (results.status='pending').
     - طلاب عليهم مبالغ متبقّية (تذكيرات دفع pending).
     - رسائل واتساب فشل إرسالها (wa_logs.success=0).
     يرجّع dict فيه القوائم والأعداد. آمن لو الجداول ناقصة (قواعد قديمة).
+
+    sync=False: يتخطّى مزامنة التذكيرات (التي تكتب في القاعدة) — يُستخدم لعدّاد
+    الجرس الذي يُحسب في كل صفحة، فلا نكتب في القاعدة عند كل طلب (أداء أفضل بكثير).
     """
     if yid is None:
         yid = active_year_id()
     conn = db.get_db()
-    _sync_reminders(conn, yid)  # صحّح المتأخرات القديمة الخاطئة قبل حساب التنبيهات
+    if sync:
+        _sync_reminders(conn, yid)  # صحّح المتأخرات القديمة الخاطئة قبل حساب التنبيهات
     grading, unpaid, failed, absences = [], [], [], []
     try:
         grading = conn.execute(
@@ -843,7 +853,7 @@ def inject_notifications():
     try:
         if not session.get("admin"):
             return {"notif_count": 0}
-        n = compute_notifications()
+        n = compute_notifications(sync=False)  # عدّاد الجرس: بلا كتابة في القاعدة
         return {"notif_count": n["total"],
                 "notif_counts": {"grading": n["n_grading"],
                                  "unpaid": n["n_unpaid"], "failed": n["n_failed"]}}

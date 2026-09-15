@@ -493,6 +493,64 @@ def init_db():
     merge_duplicate_parents()
     # ترحيل: تنظيف تذكيرات الدفع الخاطئة القديمة (دَين وهمي لطلاب لم يحضروا فعلًا)
     cleanup_invalid_reminders()
+    # فهارس (indexes) لتسريع الاستعلامات على الأعمدة كثيرة الاستخدام (حضور/درجات/تذكيرات)
+    ensure_indexes()
+
+
+def ensure_indexes():
+    """ينشئ فهارس على الأعمدة الأكثر استخدامًا في WHERE/JOIN لتسريع الاستعلامات
+    بشكل كبير عند زيادة عدد الطلاب والحصص والامتحانات (خاصة على الاستضافة).
+
+    آمن ومتوافق مع SQLite و Postgres (CREATE INDEX IF NOT EXISTS)، ولا يمسّ أي بيانات.
+    الفهرس يجعل قاعدة البيانات تصل للصف مباشرة بدل مسح الجدول كاملًا في كل استعلام.
+    """
+    idx = [
+        # الحضور: يُستعلَم عنه كثيرًا بالحصة والطالب (session_detail/reports/الملف)
+        ("idx_att_session", "attendance", "session_id"),
+        ("idx_att_student", "attendance", "student_id"),
+        # النتائج: بالامتحان والطالب
+        ("idx_res_exam", "results", "exam_id"),
+        ("idx_res_student", "results", "student_id"),
+        # محاولات الامتحان
+        ("idx_att2_exam_student", "exam_attempts", "exam_id"),
+        # التسجيلات: بالعام والطالب والمجموعة (تُستخدم في كل صفحات العام النشط)
+        ("idx_enr_year", "enrollments", "year_id"),
+        ("idx_enr_student", "enrollments", "student_id"),
+        ("idx_enr_group", "enrollments", "group_id"),
+        # الحصص والامتحانات والمجموعات بالعام الدراسي
+        ("idx_sessions_year", "sessions", "year_id"),
+        ("idx_sessions_group", "sessions", "group_id"),
+        ("idx_exams_year", "exams", "year_id"),
+        ("idx_groups_year", "groups", "year_id"),
+        # الأسئلة بالامتحان
+        ("idx_questions_exam", "questions", "exam_id"),
+        # التذكيرات بالطالب والحصة والحالة
+        ("idx_rem_student", "reminders", "student_id"),
+        ("idx_rem_session", "reminders", "session_id"),
+        ("idx_rem_status", "reminders", "status"),
+        # الطلاب بالكود (تسجيل الحضور بالـ QR ودخول الامتحان) وبالمجموعة
+        ("idx_students_code", "students", "code"),
+        ("idx_students_group", "students", "group_id"),
+        # روابط أولياء الأمور
+        ("idx_ps_parent", "parent_students", "parent_id"),
+        ("idx_ps_student", "parent_students", "student_id"),
+        # سجلّات الواتساب (تُقرأ في التنبيهات)
+        ("idx_walogs_success", "wa_logs", "success"),
+    ]
+    conn = get_db()
+    try:
+        for name, table, col in idx:
+            # لا تنشئ فهرسًا لجدول/عمود غير موجود (قواعد قديمة)
+            if col not in _existing_columns(conn, table):
+                continue
+            try:
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS {name} ON {table}({col})")
+                conn.commit()
+            except DBError:
+                conn.rollback()
+    finally:
+        conn.close()
 
 
 # جدول الأعمدة المتوقعة لكل جدول (للترحيل التلقائي / migration)
@@ -1125,11 +1183,41 @@ def ensure_admin():
     conn.close()
 
 
-def get_setting(key, default=""):
+# ذاكرة مؤقتة لكل الإعدادات ضمن طلب واحد (تُصفّى ببداية كل طلب عبر clear_settings_cache).
+# السبب: get_setting كان يُستدعى عشرات المرات في كل صفحة (من context processors)،
+# وكل استدعاء يفتح ويقفل اتصال SQLite منفصلًا — مكلف جدًا على الاستضافة (NFS).
+# الآن نحمّل كل الإعدادات دفعة واحدة ونخزّنها للطلب الحالي، فيصبح استعلامًا واحدًا فقط.
+#
+# مهم: الكاش thread-local (خاص بكل خيط على حدة) — لأن الخادم يعالج عدة طلبات
+# بالتوازي (threaded). كاش عام مشترك يسبب سباق (race) يفسده بين الخيوط.
+import threading as _threading
+_settings_local = _threading.local()
+
+
+def clear_settings_cache():
+    """تُستدعى في بداية كل طلب (before_request) لضمان قراءة إعدادات محدّثة."""
+    _settings_local.cache = None
+
+
+def _load_all_settings():
     conn = get_db()
-    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    conn.close()
-    return row["value"] if row else default
+    try:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        cache = {r["key"]: r["value"] for r in rows}
+    except Exception:
+        cache = {}
+    finally:
+        conn.close()
+    _settings_local.cache = cache
+    return cache
+
+
+def get_setting(key, default=""):
+    cache = getattr(_settings_local, "cache", None)
+    if cache is None:
+        cache = _load_all_settings()
+    val = cache.get(key)
+    return val if val is not None else default
 
 
 def set_setting(key, value):
@@ -1138,6 +1226,10 @@ def set_setting(key, value):
                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
     conn.commit()
     conn.close()
+    # حدّث الذاكرة المؤقتة فورًا حتى تعكس القراءات التالية في نفس الطلب القيمة الجديدة
+    cache = getattr(_settings_local, "cache", None)
+    if cache is not None:
+        cache[key] = str(value)
 
 
 def set_state(owner, skey, value):
