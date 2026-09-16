@@ -10,6 +10,16 @@ Optional Supabase cloud backup/sync.
 """
 import database as db
 
+# كتم سجلّات مكتبات الشبكة المزعجة (httpx/httpcore/supabase/hpack) — كانت تُغرق
+# سجل أخطاء PythonAnywhere بسطر لكل طلب HTTP أثناء النسخ الاحتياطي، مما يبطّئ الكتابة
+# على القرص الشبكي (NFS) ويساهم في «OSError: write error» وبطء الخادم.
+import logging as _logging
+for _noisy in ("httpx", "httpcore", "hpack", "supabase", "postgrest", "urllib3"):
+    try:
+        _logging.getLogger(_noisy).setLevel(_logging.WARNING)
+    except Exception:
+        pass
+
 # كل الجداول المتزامنة مع Supabase (المصدر الوحيد للحقيقة: database.EXPECTED_COLUMNS)
 # ملاحظة: parent_students مفتاحه مركّب، والبقية مفتاحها id.
 TABLES = ["academic_years", "terms", "groups", "students", "enrollments",

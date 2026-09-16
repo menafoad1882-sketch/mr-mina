@@ -12,6 +12,7 @@
 الخيط مؤقتًا؛ يستأنف عند أول طلب/استيقاظ. الجدولة تعتمد على الوقت المنقضي
 وليس على بقاء العملية حيّة، لذا لا تتكرر النسخ ولا تُفقد المواعيد.
 """
+import os
 import threading
 import time
 from datetime import datetime, timedelta
@@ -28,6 +29,11 @@ _wake = threading.Event()
 _manual_thread = None
 _manual_lock = threading.Lock()
 
+# قفل عام واحد لكل عمليات النسخ (تلقائية + يدوية): يمنع تشغيل أكثر من نسخة في آنٍ
+# واحد. تشغيل نسختين معًا كان يخنق الـ worker الوحيد على PythonAnywhere ويسبب
+# «OSError: write error» وتوقّف الخادم عند دخول أولياء الأمور في نفس اللحظة.
+_backup_running = threading.Lock()
+
 
 def start_backup_async():
     """يبدأ نسخة احتياطية يدوية في خيط خلفي. يرجّع True لو بدأت، False لو هناك واحدة جارية."""
@@ -35,6 +41,8 @@ def start_backup_async():
     with _manual_lock:
         if _manual_thread and _manual_thread.is_alive():
             return False
+        if _backup_running.locked():
+            return False  # نسخة (تلقائية) جارية بالفعل
         _manual_thread = threading.Thread(target=run_backup_now, daemon=True)
         _manual_thread.start()
         return True
@@ -84,11 +92,19 @@ def _update_next():
 
 
 def run_backup_now():
-    """ينفّذ نسخة فورية ويحدّث الحالة. يرجّع (ok, message)."""
+    """ينفّذ نسخة فورية ويحدّث الحالة. يرجّع (ok, message).
+
+    محميّ بقفل عام: لا تعمل نسختان معًا (تلقائية + يدوية) حتى لا يُخنق الـ worker.
+    """
+    if not _backup_running.acquire(blocking=False):
+        return False, "نسخة احتياطية جارية بالفعل"
     try:
-        ok, msg = sb.backup_all()
-    except Exception as e:  # حماية إضافية
-        ok, msg = False, str(e)
+        try:
+            ok, msg = sb.backup_all()
+        except Exception as e:  # حماية إضافية
+            ok, msg = False, str(e)
+    finally:
+        _backup_running.release()
     ts = _fmt(_now())
     if ok:
         db.set_setting("auto_backup_last", ts)
@@ -103,7 +119,9 @@ def run_backup_now():
 
 
 def _loop():
-    # فحص دوري كل ٣٠ ثانية؛ ينفّذ فقط عند حلول الموعد
+    # فحص دوري كل ٦٠ ثانية؛ ينفّذ النسخ فقط عند حلول الموعد وعند تفعيله.
+    # ملاحظة: نتحقّق من التفعيل داخل الحلقة (وليس البدء بلا داعٍ) لتقليل أي عبء
+    # على الـ worker عندما يكون النسخ التلقائي مُطفأً.
     while True:
         try:
             if _enabled() and sb.is_enabled() and _due():
@@ -113,7 +131,7 @@ def _loop():
         except Exception as e:
             print("[backup] خطأ في حلقة الجدولة:", e)
         # ننام مع إمكانية الإيقاظ الفوري عند تغيير الإعدادات
-        _wake.wait(timeout=30)
+        _wake.wait(timeout=60)
         _wake.clear()
 
 
@@ -128,8 +146,18 @@ def notify_settings_changed():
 
 
 def start():
-    """يبدأ خيط الجدولة مرة واحدة فقط (آمن للاستدعاء المتكرر)."""
+    """يبدأ خيط الجدولة مرة واحدة فقط (آمن للاستدعاء المتكرر).
+
+    يمكن تعطيل خيط الجدولة داخل خادم الويب بضبط متغيّر البيئة
+    DISABLE_BACKUP_THREAD=1 — يُنصح به على PythonAnywhere حيث يتنافس الخيط مع
+    عامل الويب الوحيد ويسبب بطئًا/توقّفًا عند الضغط. في هذه الحالة استخدم مهمة
+    مجدولة (Scheduled Task) تشغّل run_backup.py بدلًا من ذلك.
+    """
     global _thread, _started
+    if os.environ.get("DISABLE_BACKUP_THREAD", "").strip() in ("1", "true", "yes"):
+        print("[backup] خيط الجدولة داخل خادم الويب مُعطَّل (DISABLE_BACKUP_THREAD). "
+              "استخدم مهمة مجدولة تشغّل run_backup.py.")
+        return
     with _lock:
         if _started:
             return

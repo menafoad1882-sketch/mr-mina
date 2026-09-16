@@ -46,6 +46,15 @@ os.environ.setdefault("SECRET_KEY", "CHANGE-ME-to-a-long-random-string")
 # على خطة مدفوعة تريد Supabase؟ أزل التعليق واضبط الرابط:
 # os.environ["DATABASE_URL"] = "postgresql://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres"
 
+# ⚡ مهم للأداء والاستقرار على PythonAnywhere:
+# النسخ الاحتياطي إلى Supabase عملية طويلة؛ تشغيلها كخيط داخل خادم الويب يزاحم
+# عامل الويب الوحيد ويسبب بطئًا و«OSError: write error» وتوقّف الموقع عند دخول عدة
+# مستخدمين (أولياء أمور/طلاب) في نفس اللحظة. لذلك عطّل الخيط هنا:
+os.environ["DISABLE_BACKUP_THREAD"] = "1"
+# ثم شغّل النسخ عبر «Scheduled Task» (تبويب Tasks) بأمر مثل:
+#     python3.10 /home/USERNAME/teacher_app/run_backup.py
+# (نسخة يومية أو كل ساعة حسب حاجتك — تعمل في عملية منفصلة لا تؤثّر على الموقع.)
+
 # مكان قاعدة بيانات SQLite (دائم على PythonAnywhere). الافتراضي مجلد المشروع.
 os.environ.setdefault("DATA_DIR", PROJECT_HOME)
 
