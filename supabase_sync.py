@@ -152,6 +152,19 @@ _UNIQUE_CONSTRAINTS = _required_constraints()
 _KEY_COLUMNS = {t: _conflict_cols(t) for t in _CONFLICT_KEYS}
 
 # ═══════════════════════════════════════════════════════════════════════
+# مفاتيح طبيعية إضافية للمطابقة أثناء الاسترجاع (بلا إسقاط id) — لتفادي
+# «UNIQUE constraint failed: parents.username».
+# السبب: parents.username عليه قيد UNIQUE، والاسترجاع كان يطابق بـ id فقط. فإن
+# اختلف id بين Supabase والقاعدة المحلية بينما اسم المستخدم نفسه موجود محليًا،
+# يصطدم الإدراج بقيد UNIQUE على username → يفشل الاسترجاع كله.
+# الحل: للجداول التالية نطابق أولًا بعمودها الفريد (username) فنحدّث الموجود بدل
+# الإدراج المتصادم. نُبقي id (لا نُسقطه) للحفاظ على مراجع الأبناء (parent_students).
+_UNIQUE_MATCH_COLS = {
+    "parents": "username",
+    "students": "code",   # students.code يُستخدم للدخول/الحضور وقد يكون فريدًا فعليًا
+}
+
+# ═══════════════════════════════════════════════════════════════════════
 # جداول تُستعاد بمفتاحها الطبيعي (وليس id) — إصلاح جذري لخطأ الاسترجاع
 # «UNIQUE constraint failed: enrollments.student_id, enrollments.year_id»
 # ═══════════════════════════════════════════════════════════════════════
@@ -172,7 +185,7 @@ _NATURAL_KEY_TABLES = {
 }
 
 
-def _upsert_row(conn, table, row, key_cols):
+def _upsert_row(conn, table, row, key_cols, unique_col=None):
     """يُدرج أو يُحدّث سجلًا حسب مفتاح ثابت — idempotent وآمن للجداول ذات الأبناء.
 
     السبب الجذري لتكرار/فقد البيانات عند الاسترجاع المتكرر:
@@ -181,7 +194,10 @@ def _upsert_row(conn, table, row, key_cols):
     - وعلى SQLite، REPLACE = حذف+إدراج، فيُشغّل ON DELETE CASCADE ويمسح أبناء
       السجل (حضور/نتائج الطالب) قبل إعادة إدراجها.
     الحل: SELECT بالمفتاح ثم UPDATE إن وُجد وإلا INSERT (لا حذف، لا تكرار).
-    يرجّع True إن أُدرج/حُدّث سجل.
+
+    unique_col: عمود عليه قيد UNIQUE (مثل parents.username / students.code). قبل
+    الإدراج نتحقّق: لو صف آخر (id مختلف) يحمل نفس القيمة الفريدة، نُحدّثه بدل الإدراج
+    المتصادم — فلا يفشل الاسترجاع بـ «UNIQUE constraint failed». يرجّع True إن أُدرج/حُدّث.
     """
     where = " AND ".join(f"{k}=?" for k in key_cols)
     key_vals = [row[k] for k in key_cols]
@@ -195,12 +211,30 @@ def _upsert_row(conn, table, row, key_cols):
         set_clause = ", ".join(f"{c}=?" for c in set_cols)
         params = [row[c] for c in set_cols] + key_vals
         conn.execute(f"UPDATE {table} SET {set_clause} WHERE {where}", params)
-    else:
-        cols = ",".join(row.keys())
-        placeholders = ",".join(["?"] * len(row))
-        conn.execute(
-            f"INSERT INTO {table}({cols}) VALUES({placeholders})",
-            list(row.values()))
+        return True
+
+    # لا يوجد سجل بنفس المفتاح. قبل الإدراج، عالج تعارض العمود الفريد إن وُجد:
+    # صفّ آخر (بمفتاح مختلف) يحمل نفس قيمة العمود الفريد سيُفشل الإدراج بقيد UNIQUE.
+    if unique_col and unique_col in row and row.get(unique_col) is not None:
+        conflict = conn.execute(
+            f"SELECT * FROM {table} WHERE {unique_col}=? LIMIT 1",
+            [row[unique_col]]).fetchone()
+        if conflict:
+            # حدّث الصف المتعارض (نفس القيمة الفريدة) بكل أعمدة السجل الوارد عدا
+            # المفتاح الفريد نفسه — فيبقى سجلًا واحدًا محدَّثًا بلا اصطدام ولا تكرار.
+            set_cols = [c for c in row.keys() if c != unique_col]
+            if set_cols:
+                set_clause = ", ".join(f"{c}=?" for c in set_cols)
+                params = [row[c] for c in set_cols] + [row[unique_col]]
+                conn.execute(
+                    f"UPDATE {table} SET {set_clause} WHERE {unique_col}=?", params)
+            return True
+
+    cols = ",".join(row.keys())
+    placeholders = ",".join(["?"] * len(row))
+    conn.execute(
+        f"INSERT INTO {table}({cols}) VALUES({placeholders})",
+        list(row.values()))
     return True
 
 # أعمدة قديمة لم تعد مستخدمة (تُحذف بأمان من Supabase أثناء المزامنة)
@@ -710,6 +744,8 @@ def restore_all():
     conn = db.get_db()
     try:
         total = 0
+        skipped = 0            # عدد الصفوف التي تعذّر استرجاعها (تُتخطّى بأمان)
+        skip_samples = []      # أمثلة على أسباب التخطّي (لعرضها للمستخدم)
         for table in TABLES:
             local_cols = _local_columns(conn, table)
             if not local_cols:
@@ -740,6 +776,10 @@ def restore_all():
             else:
                 key_cols = _KEY_COLUMNS.get(table, ["id"])
             has_id = "id" in allowed
+            # عمود عليه قيد UNIQUE يُعالَج التعارض عليه أثناء الإدراج (مثل username/code)
+            unique_col = _UNIQUE_MATCH_COLS.get(table)
+            if unique_col and unique_col not in allowed:
+                unique_col = None
             for row in res.data:
                 # أبقِ فقط الأعمدة المعروفة محليًا (يتجاهل system_prompt وأي عمود قديم)
                 filtered = {k: v for k, v in row.items() if k in allowed}
@@ -765,8 +805,23 @@ def restore_all():
                 # لا بد من توفّر مفتاح المطابقة كاملًا لتحديد السجل بدقة
                 if not all(k in filtered for k in row_key):
                     continue
-                if _upsert_row(conn, table, filtered, row_key):
-                    total += 1
+                # مقاومة الأخطاء: كل صف داخل SAVEPOINT مستقل، فلو فشل صف واحد
+                # (تعارض/بيانات تالفة) نتخطّاه ونُكمل بقية الاسترجاع بدل إسقاطه كله.
+                try:
+                    conn.execute("SAVEPOINT _row")
+                    ins = _upsert_row(conn, table, filtered, row_key, unique_col)
+                    conn.execute("RELEASE SAVEPOINT _row")
+                    if ins:
+                        total += 1
+                except Exception as row_err:
+                    try:
+                        conn.execute("ROLLBACK TO SAVEPOINT _row")
+                        conn.execute("RELEASE SAVEPOINT _row")
+                    except Exception:
+                        pass
+                    skipped += 1
+                    if len(skip_samples) < 5:
+                        skip_samples.append(f"{table}: {row_err}")
             # على Postgres: بعد إدراج معرّفات id صريحة، لا بد من مزامنة تسلسل الـ id
             # وإلا يصطدم أول إدراج جديد بمفتاح مكرر. (لا يلزم عندما أسقطنا id لأن
             # القاعدة ولّدته بنفسها، لكنه آمن ومفيد في الحالتين.)
@@ -774,7 +829,11 @@ def restore_all():
                 _sync_sequence(conn, table)
         conn.commit()
         conn.close()
-        return True, f"تم استرجاع البيانات من Supabase ({total} سجلًا) ✅"
+        msg = f"تم استرجاع البيانات من Supabase ({total} سجلًا) ✅"
+        if skipped:
+            msg += (f"\n⚠️ تُخطّي {skipped} سجلًا تعذّر استرجاعه (تعارض/بيانات)."
+                    + ("\nأمثلة: " + " | ".join(skip_samples) if skip_samples else ""))
+        return True, msg
     except Exception as e:
         conn.close()
         hint = _schema_hint(e)
