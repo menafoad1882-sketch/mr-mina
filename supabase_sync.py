@@ -822,8 +822,9 @@ def restore_all():
         conn.rollback()
     try:
         total = 0
-        skipped = 0            # عدد الصفوف التي تعذّر استرجاعها (تُتخطّى بأمان)
-        skip_samples = []      # أمثلة على أسباب التخطّي (لعرضها للمستخدم)
+        skipped = 0            # عدد الصفوف التي فشل استرجاعها فعلًا (تعارض/بيانات)
+        skip_samples = []      # أمثلة على أسباب الفشل (لعرضها للمستخدم)
+        protected = 0          # سجلات حضور حُميت عمدًا (السحابة أضعف من المحلي) — ليست خطأ
         for table in TABLES:
             local_cols = _local_columns(conn, table)
             if not local_cols:
@@ -887,7 +888,7 @@ def restore_all():
                 # من السحابة بأن «يخفّض» حضورًا محليًا فعليًا. إن كان محليًا الطالب
                 # حاضر/متأخر أو دفع، والوارد غائب/فارغ أو غير دافع، نتخطّى الوارد.
                 if table == "attendance" and not _attendance_should_overwrite(conn, filtered, row_key):
-                    skipped += 1
+                    protected += 1   # حماية متعمّدة للحضور المحلي — ليست فشلًا
                     continue
                 # مقاومة الأخطاء: كل صف داخل SAVEPOINT مستقل، فلو فشل صف واحد
                 # (تعارض/بيانات تالفة) نتخطّاه ونُكمل بقية الاسترجاع بدل إسقاطه كله.
@@ -922,8 +923,11 @@ def restore_all():
         conn.commit()
         conn.close()
         msg = f"تم استرجاع البيانات من Supabase ({total} سجلًا) ✅"
+        if protected:
+            msg += (f"\n🛡️ حُوفظ على {protected} سجل حضور محلي (كان أحدث/أدقّ من النسخة "
+                    f"السحابية) — لم تُشَل أي علامة حضور.")
         if skipped:
-            msg += (f"\n⚠️ تُخطّي {skipped} سجلًا تعذّر استرجاعه (تعارض/بيانات)."
+            msg += (f"\n⚠️ فشل استرجاع {skipped} سجلًا فعليًا (تعارض/بيانات)."
                     + ("\nأمثلة: " + " | ".join(skip_samples) if skip_samples else ""))
         return True, msg
     except Exception as e:
