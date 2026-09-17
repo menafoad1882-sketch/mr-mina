@@ -74,6 +74,7 @@
         {% if att_pct is not none %}· الحضور: {{ att_pct }}%{% endif %}</p>
       <div class="actions">
         <a href="{{ url_for('send_student_login', sid=st.id) }}" class="btn sm wa">💬 إرسال بيانات الدخول لولي الأمر</a>
+        <a href="{{ url_for('student_parent_link', sid=st.id) }}" class="btn sm">👨‍👩‍👧‍👦 رابط بوابة ولي الأمر (يشمل الإخوة)</a>
         <a href="{{ url_for('student_card', sid=st.id) }}" target="_blank" class="btn sm amber">🖨️ طباعة الكارت</a>
         <a href="{{ url_for('regen_credentials', sid=st.id) }}" class="btn sm ghost" onclick="return confirm('توليد كود وباسورد جديد؟ القديم لن يعمل.')">🔄 توليد كود جديد</a>
       </div>

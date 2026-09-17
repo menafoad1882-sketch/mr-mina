@@ -4,6 +4,7 @@
 {% block content %}
 <div class="toolbar">
   <button class="btn" onclick="openModal('addParent')">➕ إنشاء حساب ولي أمر</button>
+  <a href="{{ url_for('group_parent_links') }}" class="btn wa">👨‍👩‍👧‍👦 روابط مجموعة كاملة مرة واحدة</a>
   <a href="{{ url_for('parent_login') }}" target="_blank" class="btn ghost">🔗 رابط بوابة أولياء الأمور</a>
 </div>
 

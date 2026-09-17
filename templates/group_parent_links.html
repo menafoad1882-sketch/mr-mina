@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}روابط أولياء أمور المجموعة{% endblock %}
+{% block heading %}روابط أولياء أمور المجموعة{% endblock %}
+{% block content %}
+<div class="card">
+  <p class="muted">اختر مجموعة، وسيُنشئ النظام حساب ولي أمر لكل طلابها دفعة واحدة
+  (مع دمج الإخوة أصحاب نفس الرقم في حساب واحد ولينك واحد)، ثم يعرض زر واتساب لكل
+  ولي أمر + زر «فتح الكل».</p>
+  <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;max-width:520px;margin-top:10px">
+    <select name="group" required style="flex:1;min-width:200px">
+      <option value="">— اختر المجموعة —</option>
+      {% for g in groups %}
+      <option value="{{ g.id }}" {{ 'selected' if sel_group and sel_group.id==g.id }}>{{ g.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn" type="submit">توليد الروابط</button>
+  </form>
+</div>
+
+{% if sel_group %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <h3>{{ sel_group.name }} — {{ messages|length }} ولي أمر</h3>
+    {% if messages %}
+    <div class="actions">
+      <button class="btn wa" onclick="openAll()">📤 فتح الكل ({{ messages|length }})</button>
+      <button type="button" class="btn ghost" onclick="resetSent()">↺ تصفير علامات الإرسال</button>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if messages %}
+  <div class="table-wrap" style="margin-top:12px">
+  <table>
+    <tr><th>ولي الأمر</th><th>الأبناء</th><th>رقم الواتساب</th><th>إرسال</th></tr>
+    {% for m in messages %}
+    <tr>
+      <td><b>{{ m.name }}</b>
+        <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span class="muted" style="font-size:.78rem">المستخدم:</span>
+            <code style="background:var(--th-bg);padding:2px 8px;border-radius:6px">{{ m.copy_username }}</code>
+            <button type="button" class="btn sm ghost" style="padding:2px 8px;font-size:.72rem" data-copy="{{ m.copy_username }}" onclick="copyVal(this)">📋 نسخ</button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span class="muted" style="font-size:.78rem">كلمة المرور:</span>
+            <code style="background:var(--th-bg);padding:2px 8px;border-radius:6px">{{ m.copy_password }}</code>
+            <button type="button" class="btn sm ghost" style="padding:2px 8px;font-size:.72rem" data-copy="{{ m.copy_password }}" onclick="copyVal(this)">📋 نسخ</button>
+          </div>
+        </div>
+      </td>
+      <td class="muted" style="font-size:.85rem">{{ m.status }}</td>
+      <td class="muted">{{ m.phone }}</td>
+      <td>
+        {% if wa_api_on %}
+        <button class="btn sm wa" onclick='sendOneApi(this,{{ m.phone|tojson }},{{ m.msg|tojson }})'>🚀 إرسال تلقائي</button>
+        {% else %}
+        <a href="{{ m.link }}" target="_blank" class="btn sm wa wa-link"
+           data-key="{{ m.phone }}|{{ loop.index }}" onclick="markSent(this)">💬 إرسال واتساب</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">👨‍👩‍👦</div>لا يوجد طلاب لهم رقم واتساب ولي أمر في هذه المجموعة.</div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+var SENT_KEY = 'wa_sent_' + location.pathname + location.search;
+function _getSent(){ try{ return JSON.parse(localStorage.getItem(SENT_KEY)||'{}'); }catch(e){ return {}; } }
+function _saveSent(o){ try{ localStorage.setItem(SENT_KEY, JSON.stringify(o)); }catch(e){} }
+function _applyMark(a){ a.classList.add('sent'); a.style.background='#16a34a'; a.style.opacity='.9';
+  if(a.textContent.indexOf('✅')===-1){ a.textContent='✅ تم الإرسال'; } }
+function markSent(a){ var o=_getSent(); o[a.getAttribute('data-key')]=1; _saveSent(o); _applyMark(a); }
+function _restoreMarks(){ var o=_getSent(); document.querySelectorAll('.wa-link').forEach(function(a){ if(o[a.getAttribute('data-key')]) _applyMark(a); }); }
+function resetSent(){ if(!confirm('تصفير كل علامات «تم الإرسال»؟')) return; try{ localStorage.removeItem(SENT_KEY); }catch(e){}
+  document.querySelectorAll('.wa-link').forEach(function(a){ a.classList.remove('sent'); a.style.background=''; a.style.opacity=''; a.textContent='💬 إرسال واتساب'; }); }
+function openAll(){
+  const links=document.querySelectorAll('.wa-link');
+  if(links.length>5 && !confirm('هيفتح '+links.length+' نافذة واتساب. متأكد؟')) return;
+  links.forEach((a,i)=>setTimeout(function(){ window.open(a.href,'_blank'); markSent(a); }, i*700));
+}
+function _toast(msg, ok){
+  var t=document.getElementById('copyToast');
+  if(!t){ t=document.createElement('div'); t.id='copyToast';
+    t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 18px;border-radius:10px;font-weight:600;font-size:.9rem;z-index:9999;opacity:0;transition:opacity .2s;pointer-events:none';
+    document.body.appendChild(t); }
+  t.textContent=msg; t.style.background=ok?'#16a34a':'#dc2626'; t.style.opacity='1';
+  clearTimeout(t._h); t._h=setTimeout(function(){t.style.opacity='0';},1800);
+}
+function _fallbackCopy(val){ try{ var ta=document.createElement('textarea'); ta.value=val; ta.setAttribute('readonly','');
+  ta.style.cssText='position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(ta); ta.focus(); ta.select();
+  ta.setSelectionRange(0,val.length); var ok=document.execCommand('copy'); document.body.removeChild(ta); return ok; }catch(e){ return false; } }
+function copyVal(btn){
+  var val=btn.getAttribute('data-copy')||'';
+  function done(ok){ btn.textContent = ok?'✓ تم':'انسخ يدويًا'; _toast(ok?'تم النسخ ✓':'انسخ يدويًا', ok);
+    setTimeout(function(){ btn.textContent='📋 نسخ'; }, 2000); }
+  if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(val).then(function(){done(true);}).catch(function(){done(_fallbackCopy(val));}); }
+  else{ done(_fallbackCopy(val)); }
+}
+function sendOneApi(btn,phone,message){
+  btn.textContent='⏳ جاري الإرسال...';
+  fetch('/whatsapp/send_api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone,message})})
+    .then(r=>r.json()).then(d=>{ btn.textContent=d.ok?'✅ تم الإرسال':'❌ فشل'; btn.style.background=d.ok?'#16a34a':'#dc2626'; });
+}
+document.addEventListener('DOMContentLoaded', _restoreMarks);
+</script>
+{% endblock %}
