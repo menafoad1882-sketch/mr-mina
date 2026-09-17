@@ -246,8 +246,8 @@ alter table exams drop column if exists system_prompt;
 --    ثم تنشئ القيد فقط إن لم يوجد قيد UNIQUE/PK مطابق للأعمدة نفسها.
 delete from parent_students a using parent_students b
   where a.ctid < b.ctid
-  and a.parent_id is not distinct from b.parent_id
-  and a.student_id is not distinct from b.student_id
+  and a.parent_id = b.parent_id
+  and a.student_id = b.student_id
 ;
 do $$
 declare has_constraint boolean;
@@ -268,9 +268,9 @@ begin
 end $$;
 delete from absence_alerts a using absence_alerts b
   where a.ctid < b.ctid
-  and a.student_id is not distinct from b.student_id
-  and a.year_id is not distinct from b.year_id
-  and a.threshold is not distinct from b.threshold
+  and a.student_id = b.student_id
+  and a.year_id = b.year_id
+  and a.threshold = b.threshold
 ;
 do $$
 declare has_constraint boolean;
@@ -291,7 +291,7 @@ begin
 end $$;
 delete from settings a using settings b
   where a.ctid < b.ctid
-  and a.key is not distinct from b.key
+  and a.key = b.key
 ;
 do $$
 declare has_constraint boolean;
@@ -308,6 +308,72 @@ begin
   ) into has_constraint;
   if not has_constraint then
     alter table settings add constraint uq_settings_key unique (key);
+  end if;
+end $$;
+delete from attendance a using attendance b
+  where a.ctid < b.ctid
+  and a.session_id = b.session_id
+  and a.student_id = b.student_id
+;
+do $$
+declare has_constraint boolean;
+begin
+  select exists (
+    select 1 from pg_constraint c
+    where c.conrelid = to_regclass('attendance')
+      and c.contype in ('p','u')
+      and (
+        select array_agg(att.attname::text order by att.attname::text)
+        from unnest(c.conkey) as k(attnum)
+        join pg_attribute att on att.attrelid=c.conrelid and att.attnum=k.attnum
+      ) = (select array_agg(x order by x) from unnest(array['session_id','student_id']::text[]) as t(x))
+  ) into has_constraint;
+  if not has_constraint then
+    alter table attendance add constraint uq_attendance_session_student unique (session_id, student_id);
+  end if;
+end $$;
+delete from results a using results b
+  where a.ctid < b.ctid
+  and a.exam_id = b.exam_id
+  and a.student_id = b.student_id
+;
+do $$
+declare has_constraint boolean;
+begin
+  select exists (
+    select 1 from pg_constraint c
+    where c.conrelid = to_regclass('results')
+      and c.contype in ('p','u')
+      and (
+        select array_agg(att.attname::text order by att.attname::text)
+        from unnest(c.conkey) as k(attnum)
+        join pg_attribute att on att.attrelid=c.conrelid and att.attnum=k.attnum
+      ) = (select array_agg(x order by x) from unnest(array['exam_id','student_id']::text[]) as t(x))
+  ) into has_constraint;
+  if not has_constraint then
+    alter table results add constraint uq_results_exam_student unique (exam_id, student_id);
+  end if;
+end $$;
+delete from enrollments a using enrollments b
+  where a.ctid < b.ctid
+  and a.student_id = b.student_id
+  and a.year_id = b.year_id
+;
+do $$
+declare has_constraint boolean;
+begin
+  select exists (
+    select 1 from pg_constraint c
+    where c.conrelid = to_regclass('enrollments')
+      and c.contype in ('p','u')
+      and (
+        select array_agg(att.attname::text order by att.attname::text)
+        from unnest(c.conkey) as k(attnum)
+        join pg_attribute att on att.attrelid=c.conrelid and att.attnum=k.attnum
+      ) = (select array_agg(x order by x) from unnest(array['student_id','year_id']::text[]) as t(x))
+  ) into has_constraint;
+  if not has_constraint then
+    alter table enrollments add constraint uq_enrollments_student_year unique (student_id, year_id);
   end if;
 end $$;
 

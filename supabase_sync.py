@@ -148,6 +148,18 @@ def _required_constraints():
 # قيود UNIQUE المطلوبة على Supabase (مشتقّة من مفاتيح التعارض — لا تكرار للحقيقة).
 _UNIQUE_CONSTRAINTS = _required_constraints()
 
+# قيود UNIQUE على المفاتيح الطبيعية للجداول التي مفتاحها الرسمي id لكن يجب ألا
+# تتكرّر منطقيًا (حضور/نتائج/تسجيل). بدونها يتراكم في Supabase أكثر من صف لنفس
+# (الحصة، الطالب) بأرقام id مختلفة، فيضيع «الحضور» عند الاسترجاع. نضيفها للمخطط
+# ونستخدمها كـ on_conflict عند الرفع (idempotent: تحديث الموجود بدل التكرار).
+_NATURAL_UNIQUE = {
+    "attendance": ("uq_attendance_session_student", ["session_id", "student_id"]),
+    "results": ("uq_results_exam_student", ["exam_id", "student_id"]),
+    "enrollments": ("uq_enrollments_student_year", ["student_id", "year_id"]),
+}
+for _t, _cv in _NATURAL_UNIQUE.items():
+    _UNIQUE_CONSTRAINTS.setdefault(_t, _cv)
+
 # مفتاح المطابقة الثابت أثناء الاسترجاع (UPSERT idempotent) = نفس مفتاح التعارض.
 _KEY_COLUMNS = {t: _conflict_cols(t) for t in _CONFLICT_KEYS}
 
@@ -183,6 +195,40 @@ _NATURAL_KEY_TABLES = {
     "absence_alerts": ["student_id", "year_id", "threshold"],
     "parent_students": ["parent_id", "student_id"],
 }
+
+
+def _attendance_should_overwrite(conn, incoming, key_cols):
+    """يقرّر هل يُسمح لصف حضور وارد (من السحابة) بالكتابة فوق الصف المحلي.
+
+    الأولوية للحضور الفعلي (منعًا لضياع العلامة): إن كان الصف المحلي «حاضر/متأخر»
+    أو «مدفوع»، ولا يحمل الوارد نفس القيمة الفعلية (غائب/فارغ أو غير مدفوع)، نرفض
+    الكتابة. غير ذلك (لا صف محلي، أو الوارد مساوٍ/أفضل) نسمح بها.
+    """
+    try:
+        where = " AND ".join(f"{k}=?" for k in key_cols)
+        vals = [incoming.get(k) for k in key_cols]
+        if any(v is None for v in vals):
+            return True  # مفتاح ناقص/NULL — لا مطابقة، اترك المنطق العام
+        local = conn.execute(
+            f"SELECT status, paid, amount FROM attendance WHERE {where} LIMIT 1",
+            vals).fetchone()
+    except Exception:
+        return True
+    if not local:
+        return True  # لا سجل محلي — أدخِل الوارد عاديًا
+    local = dict(local)
+    local_present = local.get("status") in ("present", "late")
+    local_paid = bool(local.get("paid")) or float(local.get("amount") or 0) > 0
+    in_status = incoming.get("status")
+    in_present = in_status in ("present", "late")
+    in_paid = bool(incoming.get("paid")) or float(incoming.get("amount") or 0) > 0
+    # لو المحلي حاضر والوارد ليس حاضرًا → لا تُخفّض الحضور
+    if local_present and not in_present:
+        return False
+    # لو المحلي مدفوع والوارد غير مدفوع → لا تُلغِ الدفع
+    if local_paid and not in_paid:
+        return False
+    return True
 
 
 def _upsert_row(conn, table, row, key_cols, unique_col=None):
@@ -318,12 +364,14 @@ def build_migration_sql():
     for table, (cname, cols) in _UNIQUE_CONSTRAINTS.items():
         cols_sql = ", ".join(cols)
         cols_arr = "array[" + ",".join(f"'{c}'" for c in cols) + "]"
-        # 4-أ) احذف الصفوف المكرّرة (تُبقي أصغر id) حتى لا يفشل إنشاء القيد
-        part_by = ", ".join(cols)
+        # 4-أ) احذف الصفوف المكرّرة (تُبقي أصغر ctid) حتى لا يفشل إنشاء القيد.
+        # مهم: نطابق بالمساواة العادية (=) لا (is not distinct from)، فالصفوف ذات
+        # قيمة NULL في المفتاح الطبيعي (مثل حضور طالب محذوف student_id=NULL — سجل
+        # مالي) لا تُعتبر مكرّرة ولا تُحذف (حماية البيانات المالية).
         lines.append(
             f"delete from {table} a using {table} b\n"
             f"  where a.ctid < b.ctid\n"
-            + "".join(f"  and a.{c} is not distinct from b.{c}\n" for c in cols)
+            + "".join(f"  and a.{c} = b.{c}\n" for c in cols)
             + ";")
         # 4-ب) أنشئ القيد فقط لو لا يوجد أي قيد UNIQUE/PK يغطّي نفس مجموعة الأعمدة
         #     (مقارنة أسماء الأعمدة كنص مرتّب؛ نحوّل attname إلى text لتفادي name[]=text[])
@@ -664,7 +712,20 @@ def backup_all(progress=True, skip_schema_check=True):
 
         total = 0
         for t_idx, (table, local_cols, cnt) in enumerate(plan, start=1):
-            on_conflict = ",".join(_conflict_cols(table))
+            conflict_cols = _conflict_cols(table)
+            # مفتاح الرفع (on_conflict): للجداول ذات مفتاح طبيعي (attendance/results/
+            # enrollments/...) نستخدم مفتاحها الطبيعي حتى يُطابَق ويُحدَّث الصف بدل
+            # إنشاء صف جديد بـ id مختلف (سبب تراكم صفوف حضور مكررة وضياع العلامة).
+            natural = _NATURAL_KEY_TABLES.get(table)
+            if conflict_cols == ["id"] and natural and all(c in local_cols for c in natural):
+                conflict_cols = natural
+            on_conflict = ",".join(conflict_cols)
+            # الجداول التي مفتاح تعارضها ليس id: لا نرفع عمود id إطلاقًا. السبب: الـ
+            # upsert يطابق على المفتاح الطبيعي، فإن حمل الصف id يصطدم أحيانًا بمفتاح
+            # <table>_pkey (id) في Supabase عندما يكون نفس id موجودًا بمفتاح طبيعي
+            # مختلف (خطأ 23505 duplicate key) — أو يُنشئ صفًا مكررًا يضيّع البيانات.
+            # id هذه الجداول رابط داخلي غير مُشار إليه، فإسقاطه آمن ويترك Supabase يولّده.
+            drop_id_on_upload = (conflict_cols != ["id"])
             batch_size = _batch_size(table)
             batches = (cnt + batch_size - 1) // batch_size
             if progress:
@@ -684,6 +745,9 @@ def backup_all(progress=True, skip_schema_check=True):
                     continue
                 rows = [{k: v for k, v in r.items() if k in local_cols or k == "id"}
                         for r in rows]
+                # أسقط id للجداول ذات المفتاح الطبيعي (تفادي تصادم <table>_pkey)
+                if drop_id_on_upload:
+                    rows = [{k: v for k, v in r.items() if k != "id"} for r in rows]
                 b_start = _time.time()
                 # (البنود 5،6) رفع الدفعة عبر upsert idempotent؛ أي خطأ يُرفع كما هو
                 # (بما فيه 57014/42P10) — لا نخفيه، مع بيان الجدول/الدفعة بالضبط.
@@ -818,6 +882,12 @@ def restore_all():
                     continue
                 # لا بد من توفّر مفتاح المطابقة كاملًا لتحديد السجل بدقة
                 if not all(k in filtered for k in row_key):
+                    continue
+                # حماية الحضور من الضياع (الأولوية للحضور الفعلي): لا نسمح لصفّ وارد
+                # من السحابة بأن «يخفّض» حضورًا محليًا فعليًا. إن كان محليًا الطالب
+                # حاضر/متأخر أو دفع، والوارد غائب/فارغ أو غير دافع، نتخطّى الوارد.
+                if table == "attendance" and not _attendance_should_overwrite(conn, filtered, row_key):
+                    skipped += 1
                     continue
                 # مقاومة الأخطاء: كل صف داخل SAVEPOINT مستقل، فلو فشل صف واحد
                 # (تعارض/بيانات تالفة) نتخطّاه ونُكمل بقية الاسترجاع بدل إسقاطه كله.
