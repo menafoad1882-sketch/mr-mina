@@ -39,6 +39,13 @@ app.secret_key = os.environ.get("SECRET_KEY", "teacher-app-secret-key-change-me-
 # عمر الكوكي طويل (٣٠ يومًا)؛ انتهاء الجلسة الفعلي يُفرض بمنطق الخمول على الخادم
 app.permanent_session_lifetime = timedelta(days=30)
 
+# موقّع روابط بيانات الدخول المكتفية ذاتيًا (لا تعتمد على تخزين في قاعدة البيانات،
+# فلا تنتهي صلاحيتها بفقدان صف مخزّن). يوقّع البيانات ولا يمكن التلاعب بها.
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+_creds_signer = URLSafeTimedSerializer(app.secret_key, salt="parent-creds-v1")
+# صلاحية الرابط الموقّع (بالثواني) — طويلة جدًا كي لا يشتكي ولي الأمر من الانتهاء
+_CREDS_MAX_AGE = 60 * 60 * 24 * 60  # 60 يومًا
+
 # تهيئة آمنة حتى مع عدة عمليات (workers) أو بيئة serverless (Vercel)
 def _safe_boot():
     # init_db دائمًا (كل الجُمَل CREATE TABLE IF NOT EXISTS = آمنة وسريعة)
@@ -2271,6 +2278,88 @@ def _unique_parent_username(conn, base):
     return uname
 
 
+def _siblings_by_phone(conn, phone, exclude_inactive=True):
+    """يرجّع كل الطلاب الذين يشتركون في نفس رقم ولي الأمر (إخوة)، مهما اختلفت
+    المرحلة أو المجموعة. يعتمد على مطابقة الرقم المطبَّع (_norm_phone)."""
+    target = _norm_phone(phone)
+    if not target:
+        return []
+    rows = conn.execute(
+        "SELECT s.*, g.name group_name FROM students s "
+        "LEFT JOIN groups g ON s.group_id=g.id "
+        "WHERE s.parent_phone IS NOT NULL AND s.parent_phone<>''"
+        + (" AND (s.status IS NULL OR s.status<>'inactive')" if exclude_inactive else "")
+        + " ORDER BY s.name").fetchall()
+    return [dict(s) for s in rows if _norm_phone(s["parent_phone"]) == target]
+
+
+def _get_or_create_parent_for_student(conn, student):
+    """يجد حساب ولي الأمر لطالب (بنفس رقم واتسابه) أو ينشئه، ويربط به كل الإخوة
+    (كل طالب بنفس الرقم). يرجّع (parent_row, created_bool, sibling_names).
+
+    يحقّق «حساب واحد + كل الإخوة» تلقائيًا مهما اختلفت مراحلهم/مجموعاتهم.
+    """
+    phone = (student.get("parent_phone") or "").strip()
+    siblings = _siblings_by_phone(conn, phone) if phone else []
+    sib_ids = [s["id"] for s in siblings] or [student["id"]]
+
+    parent = _find_parent_by_phone(conn, phone) if phone else None
+    created = False
+    if not parent:
+        name = f"ولي أمر {student['name']}"
+        username = _unique_parent_username(conn, phone or name or "parent")
+        password = db.gen_pass(6)
+        cur = conn.execute(
+            "INSERT INTO parents(username,password_hash,name,phone,active,created_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (username, generate_password_hash(password), name, phone, 1, db.now()))
+        pid = cur.lastrowid
+        parent = conn.execute("SELECT * FROM parents WHERE id=?", (pid,)).fetchone()
+        created = True
+    # اربط كل الإخوة بالحساب (idempotent)
+    for sid in sib_ids:
+        conn.execute(
+            "INSERT INTO parent_students(parent_id,student_id) VALUES(?,?) "
+            "ON CONFLICT(parent_id,student_id) DO NOTHING", (parent["id"], sid))
+    conn.commit()
+    sib_names = [s["name"] for s in siblings] if siblings else [student["name"]]
+    return parent, created, sib_names
+
+
+def _build_parent_creds_message(conn, parent, newp):
+    """يبني رسالة واتساب لبيانات دخول ولي الأمر (اسم المستخدم + كلمة المرور +
+    قائمة الأبناء + رابط صفحة النسخ). يرجّع (msg, creds_link)."""
+    portal = f"{site_url()}/parent/login"
+    tname = teacher_name()
+    # التوكن موقّع ومكتفٍ ذاتيًا: يحمل pid+password موقّعين داخله، فلا يعتمد على أي
+    # تخزين في قاعدة البيانات — وبذلك لا تظهر «انتهت صلاحية الرابط» بسبب فقدان صف
+    # مخزّن (كان هذا سبب المشكلة سابقًا). نُبقي نسخة في user_state كتوافق للروابط القديمة.
+    tok = _creds_signer.dumps({"pid": parent["id"], "password": newp})
+    try:
+        db.set_state("parent_creds", tok,
+                     json.dumps({"pid": parent["id"], "password": newp}, ensure_ascii=False))
+    except Exception:
+        pass
+    creds_link = f"{site_url()}/parent-login/{tok}"
+    children = conn.execute(
+        "SELECT s.name FROM parent_students ps JOIN students s ON ps.student_id=s.id "
+        "WHERE ps.parent_id=? ORDER BY s.name", (parent["id"],)).fetchall()
+    kids_lines = "\n".join(f"- {k['name']}" for k in children) or "-"
+    msg = wa.render_template(
+        "parent_login", student=(children[0]["name"] if children else ""),
+        username=_wa_code(parent["username"]), password=_wa_code(newp),
+        portal_url=portal, teacher=tname)
+    if not (msg or "").strip():
+        msg = (f"بيانات الدخول إلى بوابة ولي الأمر:\n\n"
+               f"اسم المستخدم:\n{_wa_code(parent['username'])}\n\n"
+               f"كلمة المرور:\n{_wa_code(newp)}\n\n"
+               f"رابط الدخول:\n{portal}\n\n"
+               f"مع تحيات {tname}")
+    msg += f"\n\nالأبناء المرتبطون بهذا الحساب:\n{kids_lines}"
+    msg += f"\n\nلنسخ كلمة المرور بسهولة اضغط الرابط التالي:\n{creds_link}"
+    return msg, creds_link
+
+
 @app.route("/parents/check-phone")
 @login_required
 def parents_check_phone():
@@ -2469,43 +2558,21 @@ def send_parent_login(pid):
             "LIMIT 1", (pid,)).fetchone()
         if srow:
             phone = srow["parent_phone"]
+    # ضمّ أي إخوة (طلاب بنفس رقم الواتساب) لم يُربطوا بعد بهذا الحساب — فلينك واحد
+    # يعرض كل الإخوة مهما اختلفت مراحلهم/مجموعاتهم.
+    if phone:
+        for sib in _siblings_by_phone(conn, phone):
+            conn.execute(
+                "INSERT INTO parent_students(parent_id,student_id) VALUES(?,?) "
+                "ON CONFLICT(parent_id,student_id) DO NOTHING", (pid, sib["id"]))
     # كلمة المرور مشفّرة؛ نولّد واحدة جديدة عند الإرسال لضمان معرفتها
     newp = db.gen_pass(6)
     conn.execute("UPDATE parents SET password_hash=? WHERE id=?",
                  (generate_password_hash(newp), pid))
     conn.commit()
+    p = conn.execute("SELECT * FROM parents WHERE id=?", (pid,)).fetchone()
+    msg, _link = _build_parent_creds_message(conn, p, newp)
     conn.close()
-    # نخزّن كلمة المرور الجديدة (نصًّا) لعرضها في صفحة النسخ العامة برمز عشوائي،
-    # حتى يفتحها ولي الأمر من رابط الواتساب وينسخ كلمة المرور بضغطة واحدة.
-    tok = db.gen_pass(10)
-    db.set_state("parent_creds", tok, json.dumps({"pid": pid, "password": newp},
-                                                 ensure_ascii=False))
-    creds_link = f"{site_url()}/parent-login/{tok}"
-    portal = f"{site_url()}/parent/login"
-    tname = teacher_name()
-    # قائمة الأبناء المرتبطين بهذا الحساب (تُعرض في الرسالة)
-    conn2 = db.get_db()
-    children = conn2.execute(
-        "SELECT s.name FROM parent_students ps JOIN students s ON ps.student_id=s.id "
-        "WHERE ps.parent_id=? ORDER BY s.name", (pid,)).fetchall()
-    conn2.close()
-    kids_lines = "\n".join(f"- {k['name']}" for k in children) or "-"
-    # صياغة تسهّل على ولي الأمر نسخ كل قيمة على حدة (اسم المستخدم/كلمة المرور
-    # في سطر مستقل وبدون رموز ملتصقة بالقيمة نفسها). القالب parent_login إن وُجد.
-    msg = wa.render_template(
-        "parent_login", student=(children[0]["name"] if children else ""),
-        username=_wa_code(p["username"]), password=_wa_code(newp),
-        portal_url=portal, teacher=tname)
-    if not (msg or "").strip():
-        msg = (f"بيانات الدخول إلى بوابة ولي الأمر:\n\n"
-               f"اسم المستخدم:\n{_wa_code(p['username'])}\n\n"
-               f"كلمة المرور:\n{_wa_code(newp)}\n\n"
-               f"رابط الدخول:\n{portal}\n\n"
-               f"مع تحيات {tname}")
-    # ألحق قائمة الأبناء المرتبطين بالحساب
-    msg += f"\n\nالأبناء المرتبطون بهذا الحساب:\n{kids_lines}"
-    # ألحق رابط صفحة النسخ (زر «نسخ» لكلمة المرور بضغطة واحدة على الموبايل)
-    msg += (f"\n\nلنسخ كلمة المرور بسهولة اضغط الرابط التالي:\n{creds_link}")
     messages = [{"name": p["name"] or p["username"], "phone": phone,
                  "status": "بيانات الدخول",
                  "link": wa.wa_link(phone, msg), "msg": msg,
@@ -2517,15 +2584,29 @@ def send_parent_login(pid):
 
 @app.route("/parent-login/<token>")
 def parent_creds_public(token):
-    """صفحة عامة (برمز عشوائي) لبيانات دخول بوابة ولي الأمر مع زر «نسخ» لكلمة
-    المرور. يفتحها ولي الأمر من رابط الواتساب فينسخ كلمة المرور بضغطة واحدة."""
-    raw = db.get_state("parent_creds", token)
-    if not raw:
-        return "انتهت صلاحية الرابط أو غير صحيح", 404
+    """صفحة عامة لبيانات دخول بوابة ولي الأمر مع زر «نسخ» لكلمة المرور.
+    يفتحها ولي الأمر من رابط الواتساب فينسخ كلمة المرور بضغطة واحدة.
+
+    التوكن موقّع ومكتفٍ ذاتيًا (لا يعتمد على تخزين)، ونحاول قراءته أولًا؛ فإن كان
+    توكنًا قديمًا (مخزّنًا في user_state) نقرأه من هناك للتوافق."""
+    info = None
+    # (1) توكن موقّع مكتفٍ ذاتيًا (الطريقة الجديدة — لا تنتهي بفقدان تخزين)
     try:
-        info = json.loads(raw)
-    except (ValueError, TypeError):
-        return "رابط غير صالح", 404
+        info = _creds_signer.loads(token, max_age=_CREDS_MAX_AGE)
+    except SignatureExpired:
+        return "انتهت صلاحية الرابط. اطلب من المعلّم إرسال رابط جديد.", 404
+    except (BadSignature, Exception):
+        info = None
+    # (2) توافق مع الروابط القديمة المخزّنة في user_state
+    if not info:
+        raw = db.get_state("parent_creds", token)
+        if raw:
+            try:
+                info = json.loads(raw)
+            except (ValueError, TypeError):
+                info = None
+    if not info:
+        return "انتهت صلاحية الرابط أو غير صحيح", 404
     conn = db.get_db()
     p = conn.execute("SELECT * FROM parents WHERE id=?", (info.get("pid"),)).fetchone()
     conn.close()
@@ -2541,6 +2622,96 @@ def parent_creds_public(token):
         title=f"بوابة أولياء الأمور — {p['name'] or p['username']}",
         subtitle=f"مع تحيات {teacher_name()}",
         rows=rows, portal_url=portal)
+
+
+@app.route("/students/<int:sid>/parent-link")
+@login_required
+def student_parent_link(sid):
+    """ينشئ (أو يجد) حساب ولي أمر الطالب ويربط به كل الإخوة (طلاب بنفس الرقم)
+    تلقائيًا، ثم يعرض رسالة واتساب واحدة بلينك واحد لكل الإخوة."""
+    conn = db.get_db()
+    st = conn.execute("SELECT * FROM students WHERE id=?", (sid,)).fetchone()
+    if not st:
+        conn.close()
+        return "الطالب غير موجود", 404
+    st = dict(st)
+    phone = (st.get("parent_phone") or "").strip()
+    if not phone:
+        conn.close()
+        flash("لا يوجد رقم واتساب لولي أمر هذا الطالب. أضِفه في بيانات الطالب أولًا.", "error")
+        return redirect(url_for("student_profile", sid=sid))
+    parent, created, sib_names = _get_or_create_parent_for_student(conn, st)
+    newp = db.gen_pass(6)
+    conn.execute("UPDATE parents SET password_hash=? WHERE id=?",
+                 (generate_password_hash(newp), parent["id"]))
+    conn.commit()
+    parent = conn.execute("SELECT * FROM parents WHERE id=?", (parent["id"],)).fetchone()
+    msg, _link = _build_parent_creds_message(conn, parent, newp)
+    conn.close()
+    sib_note = ""
+    if len(sib_names) > 1:
+        sib_note = " (يشمل الإخوة: " + "، ".join(sib_names) + ")"
+    messages = [{"name": parent["name"] or parent["username"], "phone": phone,
+                 "status": "بيانات الدخول" + sib_note,
+                 "link": wa.wa_link(phone, msg), "msg": msg,
+                 "copy_username": parent["username"], "copy_password": newp}]
+    flash((f"تم إنشاء حساب ولي الأمر وربط {len(sib_names)} من الإخوة به ✅"
+           if len(sib_names) > 1 else "تم تجهيز رابط ولي الأمر ✅"), "success")
+    return render_template("whatsapp.html", messages=messages,
+                           title=f"رابط ولي أمر: {parent['name'] or parent['username']}",
+                           back=url_for("student_profile", sid=sid))
+
+
+@app.route("/parents/group-links")
+@login_required
+def group_parent_links():
+    """صفحة اختيار مجموعة ثم إنشاء حسابات أولياء الأمور لكل طلابها دفعة واحدة
+    (مع دمج الإخوة في حساب واحد) وعرض كل روابط الواتساب مع «فتح الكل»."""
+    conn = db.get_db()
+    yid = active_year_id()
+    gid = request.args.get("group", type=int)
+    grps = conn.execute("SELECT * FROM groups WHERE year_id=? ORDER BY name",
+                        (yid,)).fetchall()
+    messages = []
+    sel_group = None
+    if gid:
+        sel_group = conn.execute("SELECT * FROM groups WHERE id=?", (gid,)).fetchone()
+        # طلاب المجموعة النشطون في العام الحالي (عبر enrollments)
+        studs = conn.execute(
+            "SELECT s.* FROM enrollments e JOIN students s ON e.student_id=s.id "
+            "WHERE e.year_id=? AND e.group_id=? "
+            "AND (e.status IS NULL OR e.status<>'inactive') ORDER BY s.name",
+            (yid, gid)).fetchall()
+        seen_parents = set()   # تفادي تكرار نفس ولي الأمر (الإخوة في نفس المجموعة)
+        for s in studs:
+            s = dict(s)
+            phone = (s.get("parent_phone") or "").strip()
+            if not phone:
+                continue
+            norm = _norm_phone(phone)
+            if norm in seen_parents:
+                continue  # وليّ أمر ظهر بالفعل (أخ سابق) — حساب واحد يكفي
+            seen_parents.add(norm)
+            parent, created, sib_names = _get_or_create_parent_for_student(conn, s)
+            newp = db.gen_pass(6)
+            conn.execute("UPDATE parents SET password_hash=? WHERE id=?",
+                         (generate_password_hash(newp), parent["id"]))
+            conn.commit()
+            parent = conn.execute("SELECT * FROM parents WHERE id=?",
+                                  (parent["id"],)).fetchone()
+            msg, _link = _build_parent_creds_message(conn, parent, newp)
+            sib_note = ""
+            if len(sib_names) > 1:
+                sib_note = " (+" + str(len(sib_names) - 1) + " إخوة)"
+            messages.append({
+                "name": (parent["name"] or parent["username"]) + sib_note,
+                "phone": phone, "status": "، ".join(sib_names),
+                "link": wa.wa_link(phone, msg), "msg": msg,
+                "copy_username": parent["username"], "copy_password": newp})
+    conn.close()
+    return render_template("group_parent_links.html", groups=grps,
+                           sel_group=sel_group, messages=messages,
+                           wa_api_on=wa.api_mode())
 
 
 # ---------------------------------------------------------------------------

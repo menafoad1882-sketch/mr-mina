@@ -742,6 +742,20 @@ def restore_all():
     if not client:
         return False, "Supabase غير مفعّل أو غير مضبوط"
     conn = db.get_db()
+    # تعطيل فحص المفاتيح الأجنبية (FK) طوال عملية الاسترجاع: الاسترجاع يعيد كل
+    # الجداول، وقد تُدرَج الصفوف بترتيب لا يطابق ترتيب المراجع مؤقتًا (أو يتغيّر id
+    # سجلٍ أب بمطابقة username/code)، فيفشل بـ «FOREIGN KEY constraint failed».
+    # نوقف الفحص أثناء الاسترجاع ثم نعيده في النهاية (البيانات تكتمل فتتّسق مراجعها).
+    _is_pg = (db.backend() == "postgres")
+    try:
+        if _is_pg:
+            # على Postgres: يتطلب صلاحية؛ نتجاهل بهدوء لو غير مسموح
+            conn.execute("SET session_replication_role = replica")
+        else:
+            conn.execute("PRAGMA foreign_keys = OFF")
+        conn.commit()
+    except Exception:
+        conn.rollback()
     try:
         total = 0
         skipped = 0            # عدد الصفوف التي تعذّر استرجاعها (تُتخطّى بأمان)
@@ -827,6 +841,14 @@ def restore_all():
             # القاعدة ولّدته بنفسها، لكنه آمن ومفيد في الحالتين.)
             if "id" in allowed:
                 _sync_sequence(conn, table)
+        # تنظيف روابط أولياء الأمور اليتيمة: قد يتغيّر id الأب أثناء الاسترجاع
+        # (مطابقة username) فيصبح الرابط القديم في parent_students يشير إلى أب لم
+        # يعد موجودًا بذلك id. نحذف الروابط التي لا أب/طالب لها (آمن — بلا فقد بيانات
+        # حقيقية لأن الرابط الصحيح أُعيد إدراجه بالـ id الجديد).
+        _cleanup_orphan_links(conn)
+        conn.commit()
+        # أعِد تفعيل فحص FK (كان مُعطَّلًا أثناء الاسترجاع).
+        _restore_fk(conn, _is_pg)
         conn.commit()
         conn.close()
         msg = f"تم استرجاع البيانات من Supabase ({total} سجلًا) ✅"
@@ -835,9 +857,44 @@ def restore_all():
                     + ("\nأمثلة: " + " | ".join(skip_samples) if skip_samples else ""))
         return True, msg
     except Exception as e:
+        try:
+            _restore_fk(conn, _is_pg)  # أعِد تفعيل الفحص حتى عند الفشل
+        except Exception:
+            pass
         conn.close()
         hint = _schema_hint(e)
         return False, f"فشل الاسترجاع: {e}" + (f"\n\n{hint}" if hint else "")
+
+
+def _cleanup_orphan_links(conn):
+    """يحذف روابط parent_students التي تشير إلى أب أو طالب غير موجود (يتيمة).
+
+    تنشأ عند تغيّر id سجل أب أثناء الاسترجاع (مطابقة username). آمن تمامًا: لا يمسّ
+    الطلاب ولا أولياء الأمور ولا أي بيانات مالية/أكاديمية — فقط روابط بلا طرفين.
+    """
+    try:
+        conn.execute(
+            "DELETE FROM parent_students WHERE parent_id NOT IN (SELECT id FROM parents) "
+            "OR student_id NOT IN (SELECT id FROM students)")
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
+def _restore_fk(conn, is_pg):
+    """يعيد تفعيل فحص المفاتيح الأجنبية بعد الاسترجاع (كان مُعطَّلًا أثناءه)."""
+    try:
+        if is_pg:
+            conn.execute("SET session_replication_role = DEFAULT")
+        else:
+            conn.execute("PRAGMA foreign_keys = ON")
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
 
 
 def _sync_sequence(conn, table):
